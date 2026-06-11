@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -60,10 +61,10 @@ type RestoreOptions struct {
 	Home      string
 	TargetCWD string
 	Execute   bool
-	Replace   bool
 }
 
 type RestoreResult struct {
+	SourceThreadID    string   `json:"source_thread_id"`
 	Status            string   `json:"status"`
 	ThreadID          string   `json:"thread_id"`
 	TargetHome        string   `json:"target_home"`
@@ -202,32 +203,24 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 	if err != nil {
 		return nil, err
 	}
-	targetSessionPath, err := safeJoin(home, input.SourceSessionRelativePath)
+	targetThreadID, targetSessionPath, err := newImportTarget(home)
 	if err != nil {
 		return nil, err
 	}
 	result := &RestoreResult{
+		SourceThreadID:    input.ThreadID,
 		Status:            "planned",
-		ThreadID:          input.ThreadID,
+		ThreadID:          targetThreadID,
 		TargetHome:        home,
 		TargetCWD:         targetCWD,
 		TargetSessionPath: targetSessionPath,
 		DryRun:            !opts.Execute,
 	}
-	if exists(targetSessionPath) && !opts.Replace {
-		return result, fmt.Errorf("target session already exists: %s (use --replace to overwrite)", targetSessionPath)
-	}
-	if entry, _ := findIndexEntry(home, input.ThreadID); len(entry) > 0 && !opts.Replace {
-		return result, fmt.Errorf("target session index already contains thread %s (use --replace to overwrite)", input.ThreadID)
-	}
-	if row, _ := readSQLiteThreadRow(home, input.ThreadID); len(row) > 0 && !opts.Replace {
-		return result, fmt.Errorf("target sqlite already contains thread %s (use --replace to overwrite)", input.ThreadID)
-	}
 	result.Writes = plannedWrites(home, targetSessionPath)
 	if !opts.Execute {
 		return result, nil
 	}
-	backupDir, err := backupState(home, input.ThreadID, targetSessionPath)
+	backupDir, err := backupState(home, targetThreadID, targetSessionPath)
 	if err != nil {
 		return nil, err
 	}
@@ -235,23 +228,20 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 	if err := os.MkdirAll(filepath.Dir(targetSessionPath), 0o755); err != nil {
 		return nil, err
 	}
-	if exists(targetSessionPath) {
-		if err := copyFile(targetSessionPath, filepath.Join(backupDir, "overwritten-session.jsonl")); err != nil {
-			return nil, err
-		}
-	}
-	rewritten, err := RewriteSessionCWD(input.SessionBytes, targetCWD)
+	rewritten, err := RewriteSessionForImport(input.SessionBytes, targetCWD, targetThreadID)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(targetSessionPath, rewritten, 0o644); err != nil {
+	if err := writeFileExclusive(targetSessionPath, rewritten); err != nil {
 		return nil, err
 	}
-	if err := upsertSessionIndex(home, input.ThreadID, input.Title, input.IndexEntry); err != nil {
+	targetInput := input
+	targetInput.ThreadID = targetThreadID
+	if err := upsertSessionIndex(home, targetThreadID, input.Title, input.IndexEntry); err != nil {
 		return nil, err
 	}
 	if exists(filepath.Join(home, StateSQLiteFile)) {
-		if err := upsertSQLiteThread(home, input, targetSessionPath, targetCWD); err != nil {
+		if err := upsertSQLiteThread(home, targetInput, targetSessionPath, targetCWD); err != nil {
 			return nil, err
 		}
 	}
@@ -375,7 +365,7 @@ func SummarizeSession(content []byte) SessionSummary {
 	return summary
 }
 
-func RewriteSessionCWD(content []byte, targetCWD string) ([]byte, error) {
+func RewriteSessionForImport(content []byte, targetCWD, targetThreadID string) ([]byte, error) {
 	var lines []string
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -391,6 +381,9 @@ func RewriteSessionCWD(content []byte, targetCWD string) ([]byte, error) {
 			payload, _ := item["payload"].(map[string]any)
 			if payload != nil {
 				payload["cwd"] = targetCWD
+				if typ == "session_meta" && targetThreadID != "" {
+					payload["id"] = targetThreadID
+				}
 			}
 		}
 		encoded, err := json.Marshal(item)
@@ -403,6 +396,10 @@ func RewriteSessionCWD(content []byte, targetCWD string) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
+}
+
+func RewriteSessionCWD(content []byte, targetCWD string) ([]byte, error) {
+	return RewriteSessionForImport(content, targetCWD, "")
 }
 
 func collectSessionCWDs(content []byte) []string {
@@ -813,6 +810,50 @@ func backupState(home, threadID, targetSessionPath string) (string, error) {
 	return dir, nil
 }
 
+func newImportTarget(home string) (string, string, error) {
+	for range 10 {
+		id, err := newThreadID()
+		if err != nil {
+			return "", "", err
+		}
+		path := newSessionPath(home, id, time.Now().UTC())
+		if exists(path) {
+			continue
+		}
+		if entry, err := findIndexEntry(home, id); err != nil {
+			return "", "", err
+		} else if len(entry) > 0 {
+			continue
+		}
+		if row, err := readSQLiteThreadRow(home, id); err != nil {
+			return "", "", err
+		} else if len(row) > 0 {
+			continue
+		}
+		return id, path, nil
+	}
+	return "", "", errors.New("could not allocate a unique imported thread id")
+}
+
+func newThreadID() (string, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
+}
+
+func newSessionPath(home, threadID string, now time.Time) string {
+	return filepath.Join(
+		home,
+		"sessions",
+		now.Format("2006"),
+		now.Format("01"),
+		now.Format("02"),
+		fmt.Sprintf("rollout-%s-%s.jsonl", now.Format("2006-01-02T15-04-05"), threadID),
+	)
+}
+
 func plannedWrites(home, targetSessionPath string) []string {
 	writes := []string{targetSessionPath, filepath.Join(home, SessionIndexFile)}
 	if exists(filepath.Join(home, StateSQLiteFile)) {
@@ -861,6 +902,19 @@ func copyFile(source, dest string) error {
 		return err
 	}
 	return os.WriteFile(dest, content, 0o644)
+}
+
+func writeFileExclusive(path string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(content)
+	return err
 }
 
 func cloneMap(in map[string]any) map[string]any {

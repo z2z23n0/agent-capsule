@@ -47,6 +47,30 @@ func TestExportCreatesStandardZipWithAgentReadme(t *testing.T) {
 	}
 }
 
+func TestExportUsesNameWhenOutIsOmitted(t *testing.T) {
+	t.Chdir(t.TempDir())
+	home := createFakeCodexHome(t)
+	result, err := Export(ExportOptions{Home: home, Thread: testThreadID, Name: "Agent Capsule fork demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != "Agent-Capsule-fork-demo.capsule.zip" {
+		t.Fatalf("path = %q", result.Path)
+	}
+	if _, err := os.Stat(result.Path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDefaultOutputNameUsesTitleThenFirstUserText(t *testing.T) {
+	if got := DefaultOutputName("", "Project kickoff", "first prompt", testThreadID); got != "Project-kickoff.capsule.zip" {
+		t.Fatalf("title output = %q", got)
+	}
+	if got := DefaultOutputName("", testThreadID, "share this session", testThreadID); got != "share-this-session.capsule.zip" {
+		t.Fatalf("first user output = %q", got)
+	}
+}
+
 func TestRestoreDryRunAndExecute(t *testing.T) {
 	sourceHome := createFakeCodexHome(t)
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")
@@ -65,26 +89,43 @@ func TestRestoreDryRunAndExecute(t *testing.T) {
 	if !plan.DryRun {
 		t.Fatal("expected dry-run")
 	}
-	verify, err := Verify(targetHome, testThreadID, targetCWD)
+	if plan.SourceThreadID != testThreadID {
+		t.Fatalf("source thread id = %q", plan.SourceThreadID)
+	}
+	if plan.ThreadID == testThreadID {
+		t.Fatal("dry-run planned import with source thread id")
+	}
+	verify, err := Verify(targetHome, plan.ThreadID, targetCWD)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if verify.Status == "ok" {
 		t.Fatal("dry-run wrote restore state")
 	}
-	if _, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true}); err != nil {
+	result, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	verify, err = Verify(targetHome, testThreadID, targetCWD)
+	if result.ThreadID == testThreadID {
+		t.Fatal("import reused source thread id")
+	}
+	verify, err = Verify(targetHome, result.ThreadID, targetCWD)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if verify.Status != "ok" {
 		t.Fatalf("verify failed: %+v", verify)
 	}
+	content, err := os.ReadFile(result.TargetSessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary := codex.SummarizeSession(content); summary.ID != result.ThreadID {
+		t.Fatalf("session_meta id = %q, want %q", summary.ID, result.ThreadID)
+	}
 }
 
-func TestRestoreConflictRequiresReplace(t *testing.T) {
+func TestRestoreImportsSameCapsuleTwiceAsNewThreads(t *testing.T) {
 	sourceHome := createFakeCodexHome(t)
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")
 	if _, err := Export(ExportOptions{Home: sourceHome, Thread: testThreadID, Out: out}); err != nil {
@@ -92,14 +133,60 @@ func TestRestoreConflictRequiresReplace(t *testing.T) {
 	}
 	targetHome := createEmptyCodexHome(t)
 	targetCWD := t.TempDir()
-	if _, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true}); err != nil {
+	first, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true}); err == nil {
-		t.Fatal("expected conflict without replace")
+	second, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true, Replace: true}); err != nil {
-		t.Fatalf("replace failed: %v", err)
+	if first.ThreadID == second.ThreadID || first.ThreadID == testThreadID || second.ThreadID == testThreadID {
+		t.Fatalf("imports did not allocate distinct fork ids: first=%s second=%s source=%s", first.ThreadID, second.ThreadID, testThreadID)
+	}
+	for _, threadID := range []string{first.ThreadID, second.ThreadID} {
+		verify, err := Verify(targetHome, threadID, targetCWD)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if verify.Status != "ok" {
+			t.Fatalf("verify failed for %s: %+v", threadID, verify)
+		}
+	}
+}
+
+func TestRestoreIntoSameHomeCreatesForkWithoutTouchingSource(t *testing.T) {
+	home := createFakeCodexHome(t)
+	sourcePath := filepath.Join(home, "sessions", "2026", "06", "11", "rollout-2026-06-11T00-00-00-"+testThreadID+".jsonl")
+	before, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: testThreadID, Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	targetCWD := t.TempDir()
+	result, err := Restore(out, codex.RestoreOptions{Home: home, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ThreadID == testThreadID {
+		t.Fatal("same-home import reused source thread id")
+	}
+	after, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("same-home import modified the source session file")
+	}
+	verify, err := Verify(home, result.ThreadID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("imported fork did not verify: %+v", verify)
 	}
 }
 
@@ -129,16 +216,17 @@ func TestRestorePreservesNewSQLiteColumns(t *testing.T) {
 	}
 	targetHome := createEmptyCodexHome(t)
 	targetCWD := t.TempDir()
-	if _, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true}); err != nil {
-		t.Fatal(err)
-	}
 	db, err := sql.Open("sqlite", filepath.Join(targetHome, "state_5.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	var model, effort, preview string
-	if err := db.QueryRow("select model, reasoning_effort, preview from threads where id = ?", testThreadID).Scan(&model, &effort, &preview); err != nil {
+	result, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("select model, reasoning_effort, preview from threads where id = ?", result.ThreadID).Scan(&model, &effort, &preview); err != nil {
 		t.Fatal(err)
 	}
 	if model != "gpt-5.5" || effort != "xhigh" || preview == "" {

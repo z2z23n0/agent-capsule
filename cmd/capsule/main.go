@@ -28,8 +28,8 @@ func run(args []string) error {
 		return runExport(args[1:])
 	case "inspect":
 		return runInspect(args[1:])
-	case "restore":
-		return runRestore(args[1:])
+	case "import", "restore":
+		return runImport(args[1:])
 	case "verify":
 		return runVerify(args[1:])
 	case "help", "-h", "--help":
@@ -45,6 +45,7 @@ func runExport(args []string) error {
 	thread := fs.String("thread", "current", "thread id to export, or current")
 	home := fs.String("home", "", "source CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
 	out := fs.String("out", "", "output .capsule.zip path")
+	name := fs.String("name", "", "capsule file name when --out is omitted")
 	unsafe := fs.Bool("unsafe-include-secrets", false, "allow export when secret scan finds high-confidence secrets")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -53,6 +54,7 @@ func runExport(args []string) error {
 		Home:                 *home,
 		Thread:               *thread,
 		Out:                  *out,
+		Name:                 *name,
 		UnsafeIncludeSecrets: *unsafe,
 	})
 	if err != nil {
@@ -76,13 +78,12 @@ func runInspect(args []string) error {
 	return printJSON(result)
 }
 
-func runRestore(args []string) error {
-	fs := flag.NewFlagSet("restore", flag.ExitOnError)
-	target := fs.String("target", "codex", "restore target (only codex is supported in v0.1)")
+func runImport(args []string) error {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	target := fs.String("target", "codex", "import target (only codex is supported in v0.1)")
 	home := fs.String("home", "", "target CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
-	targetCWD := fs.String("target-cwd", "", "target cwd for the restored Codex thread (defaults to current directory)")
-	execute := fs.Bool("execute", false, "perform writes; without this restore is a dry-run")
-	replace := fs.Bool("replace", false, "replace an existing target thread/session with the same id")
+	targetCWD := fs.String("target-cwd", "", "target cwd for the imported Codex thread (defaults to current directory)")
+	execute := fs.Bool("execute", false, "perform writes; without this import is a dry-run")
 	capsulePath := ""
 	parseArgs := args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -94,11 +95,11 @@ func runRestore(args []string) error {
 	}
 	if capsulePath == "" {
 		if fs.NArg() != 1 {
-			return fmt.Errorf("usage: capsule restore <file.capsule.zip> [--target codex] [--target-cwd .] [--execute]")
+			return fmt.Errorf("usage: capsule import <file.capsule.zip> [--target codex] [--target-cwd .] [--execute]")
 		}
 		capsulePath = fs.Arg(0)
 	} else if fs.NArg() != 0 {
-		return fmt.Errorf("usage: capsule restore <file.capsule.zip> [--target codex] [--target-cwd .] [--execute]")
+		return fmt.Errorf("usage: capsule import <file.capsule.zip> [--target codex] [--target-cwd .] [--execute]")
 	}
 	if *target != "codex" {
 		return fmt.Errorf("unsupported target %q: v0.1 only supports codex", *target)
@@ -107,7 +108,6 @@ func runRestore(args []string) error {
 		Home:      *home,
 		TargetCWD: *targetCWD,
 		Execute:   *execute,
-		Replace:   *replace,
 	})
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	home := fs.String("home", "", "target CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
 	thread := fs.String("thread", "", "thread id to verify")
-	targetCWD := fs.String("target-cwd", "", "expected restored cwd")
+	targetCWD := fs.String("target-cwd", "", "expected imported cwd")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -141,11 +141,12 @@ func printJSON(value any) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `capsule exports and restores local Codex session capsules.
+	fmt.Fprintln(os.Stderr, `capsule exports and imports local Codex session capsules.
 
 Usage:
-  capsule export --thread current --out session.capsule.zip
+  capsule export --thread current
+  capsule export --thread current --name "handoff topic"
   capsule inspect session.capsule.zip
-  capsule restore session.capsule.zip --target codex --target-cwd . --execute
+  capsule import session.capsule.zip --target codex --target-cwd . --execute
   capsule verify --home ~/.codex --thread <thread-id> --target-cwd .`)
 }

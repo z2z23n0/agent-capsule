@@ -76,6 +76,7 @@ type ExportOptions struct {
 	Home                 string
 	Thread               string
 	Out                  string
+	Name                 string
 	UnsafeIncludeSecrets bool
 }
 
@@ -126,7 +127,7 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 	}
 	out := opts.Out
 	if out == "" {
-		out = DefaultOutputName(data.Title, data.ThreadID)
+		out = DefaultOutputName(opts.Name, data.Title, data.Summary.FirstUserText, data.ThreadID)
 	}
 	manifest := buildManifest(data)
 	files, err := buildFiles(manifest, data, scan)
@@ -188,13 +189,23 @@ func Verify(home, threadID, expectedCWD string) (*codex.VerifyResult, error) {
 	return codex.VerifyThread(home, threadID, expectedCWD)
 }
 
-func DefaultOutputName(title, threadID string) string {
-	base := sanitizeFilename(title)
-	if base == "" {
-		base = threadID
+func DefaultOutputName(name, title, firstUserText, threadID string) string {
+	if strings.TrimSpace(title) == threadID {
+		title = ""
 	}
-	if base == "" {
-		base = "session"
+	for _, candidate := range []string{name, title, firstUserText, threadID, "session"} {
+		base := sanitizeFilename(candidate)
+		if base == "" {
+			continue
+		}
+		return capsuleFilename(base)
+	}
+	return "session.capsule.zip"
+}
+
+func capsuleFilename(base string) string {
+	if strings.HasSuffix(base, ".capsule.zip") {
+		return base
 	}
 	return base + ".capsule.zip"
 }
@@ -242,11 +253,11 @@ func buildManifest(data *codex.ExportData) Manifest {
 		RepoURL:                   DefaultRepo,
 		SkillURL:                  DefaultRepo,
 		InstallCommand:            InstallCmd,
-		RestoreCommand:            "capsule restore <this-file>.capsule.zip --target codex --target-cwd . --execute",
+		RestoreCommand:            "capsule import <this-file>.capsule.zip --target codex --target-cwd . --execute",
 		Git:                       gitMetadata(data.ThreadRow),
 		Files:                     RequiredFiles,
 		Notes: []string{
-			"v0.1 restores Codex UI visibility from a local zip file.",
+			"v0.1 imports a Codex session from a local zip file as a new thread.",
 			"It does not migrate auth, provider credentials, cloud state, or guarantee encrypted_content can continue cryptographically unchanged.",
 		},
 	}
@@ -408,7 +419,7 @@ func verifyChecksums(payloads map[string][]byte, checksums ChecksumFile) error {
 func agentReadme(manifest Manifest) string {
 	return fmt.Sprintf(`# Agent Capsule
 
-This is a standard zip file for restoring one Codex session into a local Codex UI.
+This is a standard zip file for importing one Codex session into a local Codex UI as a new thread.
 
 Start here:
 
@@ -421,7 +432,7 @@ Start here:
 
    capsule inspect <this-file>.capsule.zip
 
-4. Restore into the current project when the user approves local Codex history writes:
+4. Import into the current project when the user approves local Codex history writes:
 
    %s
 
@@ -430,8 +441,8 @@ Start here:
 Important boundaries:
 
 - Do not migrate auth, provider credentials, or secrets.
-- capsule restore is dry-run by default; --execute is required to write.
-- If the target already has this thread id, restore refuses unless --replace is provided.
+- capsule import is dry-run by default; --execute is required to write.
+- Import always creates a new thread id, like a Codex session fork.
 
 Thread: %s
 Title: %s
@@ -441,14 +452,14 @@ Title: %s
 func restoreMarkdown(manifest Manifest, summary codex.SessionSummary) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Restore Context\n\n")
-	fmt.Fprintf(&b, "- Thread ID: `%s`\n", manifest.ThreadID)
+	fmt.Fprintf(&b, "- Source thread ID: `%s`\n", manifest.ThreadID)
 	fmt.Fprintf(&b, "- Title: %s\n", manifest.ThreadTitle)
 	fmt.Fprintf(&b, "- Source cwd: `%s`\n", manifest.SourceCWD)
 	if manifest.SourceCLIVersion != "" {
 		fmt.Fprintf(&b, "- Source Codex CLI: `%s`\n", manifest.SourceCLIVersion)
 	}
 	fmt.Fprintf(&b, "\n## Continue\n\n")
-	fmt.Fprintf(&b, "After restoring, open the imported Codex thread in the local UI. Treat this file as a compact handoff if encrypted or private runtime state cannot be continued exactly.\n\n")
+	fmt.Fprintf(&b, "After importing, open the new Codex thread in the local UI. Treat this file as a compact handoff if encrypted or private runtime state cannot be continued exactly.\n\n")
 	if summary.FirstUserText != "" {
 		fmt.Fprintf(&b, "## First User Message\n\n%s\n\n", summary.FirstUserText)
 	}
@@ -494,8 +505,9 @@ func sanitizeFilename(value string) string {
 	value = replacer.Replace(value)
 	value = strings.Join(strings.Fields(value), "-")
 	value = strings.Trim(value, ".-")
-	if len(value) > 80 {
-		value = value[:80]
+	runes := []rune(value)
+	if len(runes) > 80 {
+		value = string(runes[:80])
 	}
 	return value
 }
