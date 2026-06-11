@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -234,6 +237,198 @@ func TestRestorePreservesNewSQLiteColumns(t *testing.T) {
 	}
 }
 
+func TestRestoreFromURLDownloadsDecryptsAndImportsAsNewThread(t *testing.T) {
+	sourceHome := createFakeCodexHome(t)
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	exported, err := Export(ExportOptions{Home: sourceHome, Thread: testThreadID, Out: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := encryptCapsule(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest LinkManifest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(manifest)
+		case "/blob":
+			_, _ = w.Write(enc.Ciphertext)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	manifest = buildLinkManifest(exported, enc, "worker")
+	manifest.Bundle.URL = server.URL + "/blob"
+	link := appendKeyFragment(server.URL+"/manifest", enc.Key)
+	targetHome := createEmptyCodexHome(t)
+	targetCWD := t.TempDir()
+	result, err := RestoreFromURL(link, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ThreadID == testThreadID {
+		t.Fatal("URL import reused source thread id")
+	}
+	verify, err := Verify(targetHome, result.ThreadID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("verify failed: %+v", verify)
+	}
+}
+
+func TestRestoreFromURLRejectsBadLinksBeforeWriting(t *testing.T) {
+	targetHome := createEmptyCodexHome(t)
+	if _, err := RestoreFromURL("https://example.test/manifest", codex.RestoreOptions{Home: targetHome, TargetCWD: t.TempDir(), Execute: true}); err == nil || !strings.Contains(err.Error(), "missing #k=") {
+		t.Fatalf("expected missing key error, got %v", err)
+	}
+}
+
+func TestShareWorkerFailureFallsBackToZip(t *testing.T) {
+	t.Chdir(t.TempDir())
+	sourceHome := createFakeCodexHome(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/capabilities":
+			_ = json.NewEncoder(w).Encode(WorkerCapabilities{Schema: LinkSchema, Service: "test", QuotaPolicy: "anonymous-small"})
+		case "/v1/shares":
+			http.Error(w, "quota exceeded", http.StatusInsufficientStorage)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	result, err := Share(ShareOptions{Home: sourceHome, Thread: testThreadID, Service: "worker", Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "fallback_zip" {
+		t.Fatalf("status = %q", result.Status)
+	}
+	if result.Path == "" {
+		t.Fatal("missing fallback path")
+	}
+	if _, err := os.Stat(result.Path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShareWorkerAllowsMissingCapabilitiesWithWarning(t *testing.T) {
+	sourceHome := createFakeCodexHome(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/capabilities":
+			http.NotFound(w, r)
+		case "/v1/shares":
+			if err := r.ParseMultipartForm(8 << 20); err != nil {
+				t.Fatalf("parse multipart: %v", err)
+			}
+			if r.FormValue("manifest") == "" {
+				t.Fatal("missing manifest field")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(workerShareResponse{
+				ShareURL:    serverURL(r) + "/s/test-share",
+				ManifestURL: serverURL(r) + "/v1/shares/test-share",
+				ExpiresAt:   "2026-06-13T00:00:00Z",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	result, err := Share(ShareOptions{Home: sourceHome, Thread: testThreadID, Service: "worker", Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ok" || result.ShareURL == "" {
+		t.Fatalf("unexpected share result: %+v", result)
+	}
+	if len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "quota_policy=unknown") {
+		t.Fatalf("missing capability warning: %+v", result.Warnings)
+	}
+	if !strings.Contains(result.ShareURL, "#k=") {
+		t.Fatalf("share url missing key fragment: %s", result.ShareURL)
+	}
+}
+
+func TestShareS3RoundTrip(t *testing.T) {
+	sourceHome := createFakeCodexHome(t)
+	targetHome := createEmptyCodexHome(t)
+	targetCWD := t.TempDir()
+	var mu sync.Mutex
+	objects := map[string][]byte{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.URL.Path, "/")
+		switch r.Method {
+		case http.MethodPut:
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			objects[key] = body
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			mu.Lock()
+			body, ok := objects[key]
+			mu.Unlock()
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write(body)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	result, err := Share(ShareOptions{
+		Home:    sourceHome,
+		Thread:  testThreadID,
+		Service: "s3",
+		S3: S3Options{
+			Endpoint:        server.URL,
+			Bucket:          "capsules",
+			Prefix:          "test",
+			AccessKeyID:     "test-key",
+			SecretAccessKey: "test-secret",
+			Region:          "auto",
+			PublicBaseURL:   server.URL + "/capsules",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ok" || result.ShareURL == "" {
+		t.Fatalf("unexpected share result: %+v", result)
+	}
+	imported, err := RestoreFromURL(result.ShareURL, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.ThreadID == testThreadID {
+		t.Fatal("S3 URL import reused source thread id")
+	}
+	verify, err := Verify(targetHome, imported.ThreadID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("verify failed: %+v", verify)
+	}
+}
+
 func createFakeCodexHome(t *testing.T) string {
 	t.Helper()
 	home := createEmptyCodexHome(t)
@@ -260,6 +455,14 @@ func createFakeCodexHome(t *testing.T) string {
 	defer db.Close()
 	insertThreadRow(t, db, sessionPath)
 	return home
+}
+
+func serverURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }
 
 func createEmptyCodexHome(t *testing.T) string {
