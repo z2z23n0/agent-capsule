@@ -15,12 +15,15 @@ test("anonymous upload/download happy path", async () => {
   assert.equal(upload.status, 201);
   const created = await upload.json();
   assert.match(created.share_url, /^https:\/\/capsule\.example\/s\//);
+  const shareID = new URL(created.share_url).pathname.split("/").pop();
+  assert.match(shareID, /^[A-Za-z0-9_-]{16}$/);
+  assert.equal(created.manifest_url, BASE_URL + "/v1/shares/" + shareID);
 
   const manifest = await worker.fetch(new Request(created.manifest_url), env);
   assert.equal(manifest.status, 200);
   const manifestJSON = await manifest.json();
   assert.equal(manifestJSON.schema, "agent-capsule.link.v1");
-  assert.match(manifestJSON.bundle.url, /\/v1\/shares\/.+\/blob$/);
+  assert.equal(manifestJSON.bundle.url, BASE_URL + "/v1/shares/" + shareID + "/blob");
   assert.equal(manifestJSON.import.install_command, "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main");
 
   const downloaded = await worker.fetch(new Request(manifestJSON.bundle.url), env);
@@ -93,6 +96,7 @@ test("upload ignores client share id and create-only metadata blocks overwrites"
   assert.equal(upload.status, 201);
   const created = await upload.json();
   assert.doesNotMatch(created.share_url, /attacker-chosen-id/);
+  assert.match(new URL(created.share_url).pathname, /^\/s\/[A-Za-z0-9_-]{16}$/);
   assert.equal((await worker.fetch(new Request(BASE_URL + "/v1/shares/attacker-chosen-id"), env)).status, 404);
 
   const gate = env.BUDGET_GATE.instance;
@@ -106,6 +110,28 @@ test("upload ignores client share id and create-only metadata blocks overwrites"
     body: JSON.stringify({ share: { id: "fixed", expires_at: "2099-01-01T00:00:00.000Z" } })
   }));
   assert.equal((await duplicate.json()).error, "share_exists");
+});
+
+test("upload retries short share id collisions without leaking objects", async () => {
+  const env = fakeEnv();
+  const gate = env.BUDGET_GATE.instance;
+  const originalCommit = gate.commit.bind(gate);
+  let commits = 0;
+  gate.commit = async (input) => {
+    commits += 1;
+    if (commits === 1) return { ok: false, status: 409, error: "share_exists" };
+    return originalCommit(input);
+  };
+
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  assert.equal(upload.status, 201);
+  const created = await upload.json();
+  assert.match(new URL(created.share_url).pathname, /^\/s\/[A-Za-z0-9_-]{16}$/);
+  assert.equal(commits, 2);
+  assert.equal(env.CAPSULE_BUCKET.objects.size, 1);
 });
 
 test("worker replaces uploaded import commands with official defaults", async () => {

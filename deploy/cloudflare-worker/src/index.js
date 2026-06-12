@@ -4,6 +4,9 @@ const DEFAULT_INSTALL_COMMAND = "go install github.com/z2z23n0/agent-capsule/cmd
 const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
 const DEFAULT_DRY_RUN_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd .";
 const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";
+const SHARE_ID_BYTES = 12;
+const SHARE_ID_MAX_ATTEMPTS = 5;
+const STORAGE_ID_BYTES = 12;
 
 export class BudgetGate {
   constructor(state, env) {
@@ -219,39 +222,44 @@ async function createShare(request, env, origin) {
   const reserve = await gateJSON(env, "/reserve", { bytes: accountedBytes, blob_bytes: blobBytes });
   if (!reserve.ok) return json({ ok: false, error: reserve.error }, reserve.status || 507);
 
-  const id = crypto.randomUUID();
-  const objectKey = "shares/" + id + "/blob.enc";
   try {
-    const expiresAt = new Date(Date.now() + limits.maxTtlSeconds * 1000).toISOString();
-    manifest.expires_at = expiresAt;
-    manifest.bundle.bytes = blobBytes;
-    manifest.bundle.url = origin + "/v1/shares/" + id + "/blob";
-    manifest.service = { type: "worker", quota_policy: "anonymous-small" };
     const data = await blob.arrayBuffer();
-    await env.CAPSULE_BUCKET.put(objectKey, data, {
-      httpMetadata: { contentType: "application/octet-stream" }
-    });
-    const commit = await gateJSON(env, "/commit", {
-      share: {
-        id,
-        object_key: objectKey,
-        bytes: accountedBytes,
-        blob_bytes: blobBytes,
-        manifest_bytes: manifestBytes,
-        downloads: 0,
-        expires_at: expiresAt,
-        manifest
+    const expiresAt = new Date(Date.now() + limits.maxTtlSeconds * 1000).toISOString();
+    for (let attempt = 0; attempt < SHARE_ID_MAX_ATTEMPTS; attempt += 1) {
+      const id = randomBase64URL(SHARE_ID_BYTES);
+      const objectKey = "shares/" + id + "/" + randomBase64URL(STORAGE_ID_BYTES) + "/blob.enc";
+      manifest.expires_at = expiresAt;
+      manifest.bundle.bytes = blobBytes;
+      manifest.bundle.url = origin + "/v1/shares/" + id + "/blob";
+      manifest.service = { type: "worker", quota_policy: "anonymous-small" };
+      await env.CAPSULE_BUCKET.put(objectKey, data, {
+        httpMetadata: { contentType: "application/octet-stream" }
+      });
+      const commit = await gateJSON(env, "/commit", {
+        share: {
+          id,
+          object_key: objectKey,
+          bytes: accountedBytes,
+          blob_bytes: blobBytes,
+          manifest_bytes: manifestBytes,
+          downloads: 0,
+          expires_at: expiresAt,
+          manifest
+        }
+      });
+      if (commit.ok) {
+        return json({
+          share_url: origin + "/s/" + id,
+          manifest_url: origin + "/v1/shares/" + id,
+          expires_at: expiresAt
+        }, 201);
       }
-    });
-    if (!commit.ok) {
       await env.CAPSULE_BUCKET.delete(objectKey);
-      throw new Error(commit.error || "metadata_commit_failed");
+      if (commit.error !== "share_exists") {
+        throw new Error(commit.error || "metadata_commit_failed");
+      }
     }
-    return json({
-      share_url: origin + "/s/" + id,
-      manifest_url: origin + "/v1/shares/" + id,
-      expires_at: expiresAt
-    }, 201);
+    throw new Error("share_id_collision");
   } catch (error) {
     await gateJSON(env, "/release", { bytes: accountedBytes });
     throw error;
@@ -1366,6 +1374,14 @@ function positiveInt(value) {
 
 function validID(value) {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(value);
+}
+
+function randomBase64URL(byteLength) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function dayKey() {
