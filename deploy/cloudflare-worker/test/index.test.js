@@ -180,9 +180,14 @@ test("share page serves human preview shell and agent metadata", async () => {
   const page = await worker.fetch(new Request(created.share_url + "#k=test"), env);
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /页面只是可读预览/);
-  assert.match(html, /导入到 Codex 原生 UI/);
-  assert.match(html, /agent-restore/);
+  assert.match(html, /Capsule preview/);
+  assert.match(html, /这里是可读预览，不是完整原生线程/);
+  assert.match(html, /预览已在浏览器本地解密。页面内容只是预览/);
+  assert.match(html, /FOR AGENTS/);
+  assert.match(html, /Restore in Codex/);
+  assert.match(html, /share-layout/);
+  assert.match(html, /agents-panel/);
+  assert.match(html, /agents-card/);
   assert.match(html, /codex-thread/);
   assert.match(html, /turn-process/);
   assert.match(html, /tool-group/);
@@ -195,14 +200,16 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.match(html, /function isInternalContextEntry/);
   assert.match(html, /image-grid/);
   assert.match(html, /preview-image/);
+  assert.match(html, /<span>Dry run<\/span>/);
+  assert.match(html, /id="dry-run-command"/);
+  assert.match(html, /<span>Import<\/span>/);
+  assert.match(html, /id="execute-command"/);
+  assert.doesNotMatch(html, /这个预览被截断了/);
   assert.doesNotMatch(html, /restore-drawer/);
-  assert.doesNotMatch(html, /agents-panel/);
-  assert.doesNotMatch(html, /share-layout/);
+  assert.doesNotMatch(html, /agent-restore/);
   assert.match(html, /application\/agent-capsule\+json/);
   assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
   assert.match(html, /skills\/agent-capsule/);
-  assert.doesNotMatch(html, /<span>Dry run<\/span>/);
-  assert.doesNotMatch(html, /id="dry-run-command"/);
 
   const jsonResponse = await worker.fetch(new Request(created.share_url, {
     headers: { accept: "application/json" }

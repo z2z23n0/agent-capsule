@@ -336,24 +336,42 @@ function sharePageHTML(request, manifest, id) {
 </head>
 <body>
   <script id="agent-capsule-metadata" type="application/agent-capsule+json">${scriptJSON(metadata)}</script>
-  <main class="codex-shell">
-    <div class="share-meta" aria-live="polite">
-      <span id="counts">正在等待预览</span>
-      <span id="expires-at">加密链接</span>
-    </div>
-    <div id="status" class="status">正在读取这个链接里的加密预览。</div>
-    <section id="transcript" class="codex-thread" aria-label="Session preview" aria-live="polite"></section>
+  <main class="share-layout">
+    <section class="preview-column" aria-label="Capsule preview">
+      <header class="preview-header">
+        <p class="preview-kicker">Capsule preview</p>
+        <h1 id="page-title">${escapeHTML(title)}</h1>
+        <p class="preview-subtitle">这里是可读预览，不是完整原生线程。完整 session 可以交给 agent 导入到你自己的 Codex 原生 UI 里继续。</p>
+        <p class="preview-meta" aria-live="polite">
+          <span id="counts">正在等待预览</span>
+          <span id="expires-at">加密链接</span>
+        </p>
+        <hr class="preview-rule">
+        <p id="status" class="status">正在读取这个链接里的加密预览。</p>
+      </header>
+      <section id="transcript" class="codex-thread" aria-label="Session preview" aria-live="polite"></section>
+    </section>
 
-    <details class="agent-restore" aria-labelledby="agents-title">
-      <summary id="agents-title">导入到 Codex 原生 UI</summary>
-      <p class="agent-restore-note">页面只是可读预览。把完整链接交给 agent，它可以安装 capsule，并把完整 session 作为新的 Codex thread 导入。</p>
-      <div class="restore-grid">
+    <aside class="agents-panel" aria-labelledby="agents-title">
+      <section class="agents-card">
+        <p class="agents-kicker">FOR AGENTS</p>
+        <h2 id="agents-title">Restore in Codex</h2>
+        <p class="agents-copy">Give this URL to a coding agent. It can install the importer, dry-run the write, then import the complete session as a new Codex thread.</p>
+
         <div class="command-block">
           <div class="command-head">
             <span>Install</span>
             <button type="button" data-copy="install-command">Copy</button>
           </div>
           <pre id="install-command"></pre>
+        </div>
+
+        <div class="command-block">
+          <div class="command-head">
+            <span>Dry run</span>
+            <button type="button" data-copy="dry-run-command">Copy</button>
+          </div>
+          <pre id="dry-run-command"></pre>
         </div>
 
         <div class="command-block emphasized">
@@ -363,16 +381,8 @@ function sharePageHTML(request, manifest, id) {
           </div>
           <pre id="execute-command"></pre>
         </div>
-
-        <div class="command-block">
-          <div class="command-head">
-            <span>Skill</span>
-            <button type="button" data-copy="skill-url">Copy</button>
-          </div>
-          <pre id="skill-url"></pre>
-        </div>
-      </div>
-    </details>
+      </section>
+    </aside>
   </main>
   <script>${sharePageJS()}</script>
 </body>
@@ -399,6 +409,7 @@ function sharePageCSS() {
   --accent: #2f6f66;
   --warn: #86651f;
   --error: #a33a32;
+  --shadow: 0 18px 48px rgba(26, 33, 43, 0.08);
 }
 * { box-sizing: border-box; }
 body {
@@ -410,35 +421,104 @@ body {
   line-height: 1.6;
 }
 button, a { font: inherit; }
-.codex-shell {
-  width: min(1680px, calc(100% - 210px));
-  margin: 0 auto;
-  padding: 72px 0 96px;
-}
-.share-meta {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-.restore-grid {
+.share-layout {
+  width: min(1500px, calc(100vw - 72px));
+  margin: 44px auto 72px;
   display: grid;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  column-gap: 48px;
+  align-items: start;
+}
+.preview-column {
+  min-width: 0;
+}
+.preview-header {
+  padding: 0 44px 0 72px;
+}
+.preview-kicker {
+  margin: 0 0 4px;
+  color: #969da8;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+#page-title {
+  margin: 0 0 12px;
+  font-size: clamp(28px, 3vw, 38px);
+  line-height: 1.18;
+  letter-spacing: 0;
+  font-weight: 780;
+}
+.preview-subtitle {
+  max-width: 880px;
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 18px;
+  font-weight: 560;
+}
+.preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+.preview-rule {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 30px 0 28px;
 }
 .status {
-  margin: 22px 0 30px;
+  max-width: 760px;
+  margin: 0;
   color: var(--muted-strong);
-  font-size: 14px;
+  font-size: 17px;
   line-height: 1.55;
+  font-weight: 560;
 }
-.status[hidden] { display: none; }
+.status[data-kind="success"] { color: var(--muted-strong); }
 .status[data-kind="warn"] { color: var(--warn); }
 .status[data-kind="error"] { color: var(--error); }
 .codex-thread {
   display: block;
   min-width: 0;
+  margin-top: 82px;
+  padding: 0 44px 0 72px;
+}
+.agents-panel {
+  position: sticky;
+  top: 28px;
+  margin-top: 178px;
+}
+.agents-card {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  padding: 38px 30px 32px;
+}
+.agents-kicker {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.agents-card h2 {
+  margin: 0 0 18px;
+  color: #24282f;
+  font-size: 34px;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+.agents-copy {
+  margin: 0 0 32px;
+  color: var(--muted-strong);
+  font-size: 20px;
+  line-height: 1.45;
+  font-weight: 520;
 }
 .message-row {
   display: flex;
@@ -694,31 +774,12 @@ button, a { font: inherit; }
   color: var(--muted);
   font-size: 22px;
 }
-.agent-restore {
-  margin-top: 72px;
-  border-top: 1px solid var(--line);
-  padding-top: 22px;
-  color: var(--muted-strong);
-}
-.agent-restore summary {
-  cursor: pointer;
-  width: fit-content;
-  list-style: none;
-  color: var(--muted);
-  font-size: 15px;
-}
-.agent-restore summary::-webkit-details-marker { display: none; }
-.agent-restore-note {
-  max-width: 760px;
-  margin: 12px 0 18px;
-  font-size: 14px;
-  line-height: 1.55;
-}
 .command-block {
-  border: 1px solid var(--line);
+  margin-top: 18px;
+  border: 1px solid #e0e4e9;
   border-radius: 8px;
   overflow: hidden;
-  background: var(--command-bg);
+  background: #f7f8fa;
   min-width: 0;
 }
 .command-block.emphasized { border-color: rgba(47,111,102,.65); }
@@ -729,35 +790,61 @@ button, a { font: inherit; }
   gap: 10px;
   background: #f7f7f8;
   color: var(--ink);
-  padding: 8px 9px;
-  font-size: 13px;
-  font-weight: 620;
+  min-height: 50px;
+  padding: 0 12px 0 16px;
+  font-size: 16px;
+  font-weight: 760;
 }
 .command-head button {
-  border: 1px solid var(--line);
+  border: 1px solid #e1e6eb;
   background: white;
   color: #123d37;
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 5px 14px;
   cursor: pointer;
   white-space: nowrap;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 760;
+}
+.command-head button:active {
+  transform: translateY(1px);
 }
 .command-block pre {
+  background: var(--command-bg);
   color: var(--command-ink);
-  padding: 16px;
-  font-size: 13px;
-  line-height: 1.45;
+  padding: 18px;
+  font-size: 15px;
+  line-height: 1.5;
 }
-@media (max-width: 900px) {
-  .codex-shell { width: min(100% - 72px, 900px); }
+@media (max-width: 1120px) {
+  .share-layout {
+    width: min(940px, calc(100vw - 40px));
+    grid-template-columns: 1fr;
+  }
+  .preview-header,
+  .codex-thread {
+    padding: 0;
+  }
+  .agents-panel {
+    position: static;
+    grid-row: 2;
+    margin-top: 48px;
+  }
+  .codex-thread {
+    grid-row: 3;
+    margin-top: 56px;
+  }
 }
 @media (max-width: 760px) {
-  .codex-shell {
-    width: min(100% - 22px, 720px);
-    padding: 22px 0 64px;
+  .share-layout {
+    width: min(100% - 28px, 640px);
+    margin-top: 24px;
   }
-  .status { margin: 18px 0 24px; }
+  #page-title { font-size: 28px; }
+  .preview-subtitle,
+  .status,
+  .agents-copy { font-size: 16px; }
+  .codex-thread { margin-top: 44px; }
   .message-row { margin: 24px 0; }
   .message-row.user { margin-bottom: 38px; }
   .message-row.user .bubble {
@@ -781,6 +868,12 @@ button, a { font: inherit; }
   }
   .tool-action > summary {
     font-size: 15px;
+  }
+  .agents-card {
+    padding: 28px 20px 24px;
+  }
+  .agents-card h2 {
+    font-size: 29px;
   }
   .process-panel { border-radius: 10px; }
   .process-panel-head,
@@ -822,17 +915,18 @@ function setStatus(text, kind = "info") {
   const node = $("status");
   node.textContent = text;
   node.dataset.kind = kind;
-  node.hidden = kind === "success";
+  node.hidden = false;
 }
 
 function renderCommands(importInfo) {
   $("install-command").textContent = importInfo.install_command || metadata.import.install_command;
+  $("dry-run-command").textContent = commandText(importInfo.dry_run_command || metadata.import.dry_run_command);
   $("execute-command").textContent = commandText(importInfo.execute_command || importInfo.command || metadata.import.execute_command);
-  $("skill-url").textContent = importInfo.skill_url || metadata.import.skill_url || "";
 }
 
 function renderManifestInfo(manifest) {
   if (manifest.thread && manifest.thread.title) {
+    $("page-title").textContent = manifest.thread.title;
     document.title = manifest.thread.title + " - Codex preview";
   }
   $("expires-at").textContent = manifest.expires_at ? "过期时间 " + new Date(manifest.expires_at).toLocaleString() : "加密链接";
@@ -871,12 +965,6 @@ function renderTranscript(transcript) {
   $("counts").textContent = [messageCount + " 条消息", toolCount + " 个过程步骤", imageCount ? imageCount + " 张图片" : "", omittedImages ? "省略 " + omittedImages + " 张图片" : ""].filter(Boolean).join(" - ");
   const root = $("transcript");
   root.replaceChildren();
-  if (transcript.truncated) {
-    const note = document.createElement("div");
-    note.className = "status";
-    note.textContent = "这个预览被截断了。导入 Capsule 后可以在完整 Codex 线程里继续。";
-    root.appendChild(note);
-  }
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "status";
@@ -1386,7 +1474,7 @@ async function boot() {
     }
     const transcript = await decryptPreview(manifest.preview, key);
     renderTranscript(transcript);
-    setStatus("预览已在浏览器本地解密。", "success");
+    setStatus("预览已在浏览器本地解密。页面内容只是预览，完整 session 可以通过 For Agents 里的命令恢复到你的 Codex 原生 UI。", "success");
   } catch (error) {
     $("counts").textContent = "预览不可用";
     setStatus(error && error.message ? error.message : String(error), "error");
