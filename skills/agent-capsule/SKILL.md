@@ -83,6 +83,61 @@ capsule import <file-or-url> --target codex --target-cwd .
 
 Agent Capsule import always creates a new Codex thread, like a session fork. Never design the workflow around replacing or overwriting the source thread, even when source and target use the same `CODEX_HOME`.
 
+## Open Or Resume Result
+
+When the user asks you to open, resume, or continue a capsule result, use the
+user's current agent surface when possible. Do not assume you are running in
+Codex; the current agent may be Codex, Claude Code, Cursor, OpenCode, or another
+agent.
+
+```mermaid
+flowchart TD
+  A["Have capsule result or target session id"] --> B{"Current surface?"}
+  B -->|App with thread tools| C["Use native app/thread tools"]
+  C --> D["Pin, open, read, or continue target if supported"]
+  D --> Z["Report verified result"]
+  B -->|CLI / terminal| E["Infer host terminal"]
+  E --> F{"Confident and controllable?"}
+  F -->|Yes| G["Open a new tab/window in the same terminal"]
+  F -->|No| H["Ask user or print exact command"]
+  G --> Z
+  H --> Z
+  B -->|Unknown / remote / headless| I["Do not automate GUI"]
+  I --> J["Print exact local command"]
+  J --> Z
+```
+
+Prefer native app/thread tools over shell automation when available. For Codex
+App, useful tools may include `set_thread_pinned`, `read_thread`, and
+`send_message_to_thread`; pinning the target thread is preferred when direct
+opening is unavailable.
+
+In CLI/TUI, do not run a nested resume command inline in the active agent
+session. Infer the host terminal from best-effort signals such as environment
+variables, parent process chain, running apps, or app-state tools. Treat this as
+heuristic, not ground truth; do not hard-code Terminal, Ghostty, iTerm2, Warp,
+WezTerm, Kitty, Alacritty, or any other terminal as the default.
+
+If detection is uncertain or GUI control is unsafe, ask the user which surface to
+use, or print the exact command. Preserve the original model/provider when known.
+If the normal launcher is blocked by wrapper or updater behavior, use a direct
+installed binary only after confirming that blocker.
+
+For Codex targets, the command shape is:
+
+```bash
+cd <cwd> && codex resume -m <model> <thread-id>
+```
+
+For non-Codex targets, use that runtime's equivalent resume or open command.
+Claim success only after verifying through native app tools, terminal contents,
+or process inspection.
+
+For Codex targets, verify thread existence with narrow checks such as
+`session_index.jsonl`, an exact session file path, or the specific resume
+process. Avoid broad recursive scans of `CODEX_HOME`; local Codex histories can
+be large and may include sensitive capsule URLs.
+
 ## Verify
 
 After an executed import, verify the new thread id from the import result:
