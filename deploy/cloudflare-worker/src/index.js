@@ -524,17 +524,20 @@ h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.15; letter-spa
 .markdown {
   font-size: 15px;
   color: var(--ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .markdown > *:first-child { margin-top: 0; }
 .markdown > *:last-child { margin-bottom: 0; }
-.markdown p { margin: 0 0 10px; }
+.markdown p { margin: 0 0 10px; overflow-wrap: anywhere; }
 .markdown h1, .markdown h2, .markdown h3 {
   margin: 14px 0 8px;
   font-size: 1.05rem;
   line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 .markdown ul, .markdown ol { margin: 8px 0 10px; padding-left: 22px; }
-.markdown li { margin: 4px 0; }
+.markdown li { margin: 4px 0; overflow-wrap: anywhere; }
 .markdown blockquote {
   margin: 10px 0;
   padding: 2px 0 2px 12px;
