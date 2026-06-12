@@ -62,3 +62,8 @@ The open Worker template lives in `deploy/cloudflare-worker/`. Copy
 `BudgetGate` Durable Object, then deploy with Wrangler. Official deployments use
 the same code; bucket names, secrets, namespaces, and hosted endpoint settings
 are intentionally not committed.
+
+For BYO Worker deployments, set `CAPSULE_WORKER_TOKEN` with `wrangler secret put`
+if you want uploads to require `capsule share --token ...` or
+`CAPSULE_WORKER_TOKEN` on the client. Without that Worker secret, the template
+continues to allow anonymous uploads with the built-in size and budget gates.

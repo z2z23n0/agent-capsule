@@ -28,9 +28,13 @@ export class BudgetGate {
 
   async reserve(input) {
     const bytes = positiveInt(input.bytes);
+    const blobBytes = positiveInt(input.blob_bytes || input.bytes);
     const limits = readLimits(this.env);
-    if (bytes <= 0 || bytes > limits.maxBlobBytes) {
+    if (blobBytes <= 0 || blobBytes > limits.maxBlobBytes) {
       return { ok: false, status: 413, error: "blob_too_large" };
+    }
+    if (bytes <= 0 || bytes > limits.maxShareBytes) {
+      return { ok: false, status: 413, error: "share_too_large" };
     }
     const budget = await this.rollBudget(await this.loadBudget());
     const nextLive = budget.liveBytes + bytes;
@@ -38,10 +42,8 @@ export class BudgetGate {
     const projectedGbDays = budget.gbDays + nextPeak / GB;
     if (nextLive > limits.liveBytesLimit) return { ok: false, status: 507, error: "live_bytes_limit" };
     if (projectedGbDays > limits.monthlyGbDaysLimit) return { ok: false, status: 507, error: "monthly_gb_days_limit" };
-    if (budget.puts + 1 > limits.monthlyPutLimit) return { ok: false, status: 507, error: "monthly_put_limit" };
     budget.liveBytes = nextLive;
     budget.todayPeakBytes = nextPeak;
-    budget.puts += 1;
     await this.saveBudget(budget);
     return { ok: true };
   }
@@ -57,7 +59,17 @@ export class BudgetGate {
   async commit(input) {
     const share = input.share || {};
     if (!validID(share.id)) return { ok: false, status: 400, error: "bad_share_id" };
+    if (await this.state.storage.get("share:" + share.id)) {
+      return { ok: false, status: 409, error: "share_exists" };
+    }
+    const budget = await this.rollBudget(await this.loadBudget());
+    const limits = readLimits(this.env);
+    if (budget.puts + 1 > limits.monthlyPutLimit) {
+      return { ok: false, status: 507, error: "monthly_put_limit" };
+    }
+    budget.puts += 1;
     await this.state.storage.put("share:" + share.id, share);
+    await this.saveBudget(budget);
     return { ok: true };
   }
 
@@ -159,7 +171,7 @@ export default {
           max_blob_bytes: limits.maxBlobBytes,
           max_ttl_seconds: limits.maxTtlSeconds,
           quota_policy: "anonymous-small",
-          auth_required: false
+          auth_required: uploadAuthRequired(env)
         });
       }
       if (url.pathname === "/v1/shares" && request.method === "POST") return await createShare(request, env, url.origin);
@@ -182,22 +194,37 @@ export default {
 
 async function createShare(request, env, origin) {
   const limits = readLimits(env);
+  if (!(await verifyUploadToken(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
+  const requestBytes = positiveInt(request.headers.get("content-length"));
+  if (requestBytes > 0 && requestBytes > limits.maxRequestBytes) {
+    return json({ ok: false, error: "request_too_large" }, 413);
+  }
   const form = await request.formData();
   const blob = form.get("blob");
   const manifestText = form.get("manifest");
   if (!blob || typeof blob.arrayBuffer !== "function") return json({ ok: false, error: "missing_blob" }, 400);
   if (!manifestText) return json({ ok: false, error: "missing_manifest" }, 400);
-  const bytes = blob.size || 0;
-  const reserve = await gateJSON(env, "/reserve", { bytes });
+  const blobBytes = blob.size || 0;
+  const manifestBytes = byteLength(String(manifestText));
+  if (manifestBytes > limits.maxManifestBytes) return json({ ok: false, error: "manifest_too_large" }, 413);
+
+  let manifest;
+  try {
+    manifest = normalizeManifest(JSON.parse(String(manifestText)), limits, origin);
+  } catch (error) {
+    return json({ ok: false, error: String(error && error.message ? error.message : error) }, 400);
+  }
+
+  const accountedBytes = blobBytes + manifestBytes;
+  const reserve = await gateJSON(env, "/reserve", { bytes: accountedBytes, blob_bytes: blobBytes });
   if (!reserve.ok) return json({ ok: false, error: reserve.error }, reserve.status || 507);
 
-  const id = validID(form.get("share_id")) ? String(form.get("share_id")) : crypto.randomUUID();
+  const id = crypto.randomUUID();
   const objectKey = "shares/" + id + "/blob.enc";
   try {
-    const manifest = JSON.parse(String(manifestText));
-    if (manifest.schema !== LINK_SCHEMA) throw new Error("unsupported manifest schema");
     const expiresAt = new Date(Date.now() + limits.maxTtlSeconds * 1000).toISOString();
     manifest.expires_at = expiresAt;
+    manifest.bundle.bytes = blobBytes;
     manifest.bundle.url = origin + "/v1/shares/" + id + "/blob";
     manifest.service = { type: "worker", quota_policy: "anonymous-small" };
     const data = await blob.arrayBuffer();
@@ -208,7 +235,9 @@ async function createShare(request, env, origin) {
       share: {
         id,
         object_key: objectKey,
-        bytes,
+        bytes: accountedBytes,
+        blob_bytes: blobBytes,
+        manifest_bytes: manifestBytes,
         downloads: 0,
         expires_at: expiresAt,
         manifest
@@ -224,7 +253,7 @@ async function createShare(request, env, origin) {
       expires_at: expiresAt
     }, 201);
   } catch (error) {
-    await gateJSON(env, "/release", { bytes });
+    await gateJSON(env, "/release", { bytes: accountedBytes });
     throw error;
   }
 }
@@ -256,18 +285,18 @@ async function sharePage(request, env, id) {
 
 function manifestForResponse(manifest) {
   const out = JSON.parse(JSON.stringify(manifest || {}));
-  out.import = importInfo(out.import);
+  out.import = importInfo();
   return out;
 }
 
-function importInfo(value = {}) {
+function importInfo() {
   return {
-    tool: value.tool || "capsule",
-    command: quoteThisURL(value.command || DEFAULT_EXECUTE_COMMAND),
-    install_command: value.install_command || DEFAULT_INSTALL_COMMAND,
-    dry_run_command: quoteThisURL(value.dry_run_command || DEFAULT_DRY_RUN_COMMAND),
-    execute_command: quoteThisURL(value.execute_command || value.command || DEFAULT_EXECUTE_COMMAND),
-    docs_url: value.docs_url || DEFAULT_DOCS_URL
+    tool: "capsule",
+    command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
+    install_command: DEFAULT_INSTALL_COMMAND,
+    dry_run_command: quoteThisURL(DEFAULT_DRY_RUN_COMMAND),
+    execute_command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
+    docs_url: DEFAULT_DOCS_URL
   };
 }
 
@@ -1017,9 +1046,113 @@ function gate(env, path, body) {
   });
 }
 
-function readLimits(env) {
+function normalizeManifest(input, limits) {
+  if (!input || typeof input !== "object") throw new Error("bad_manifest");
+  if (input.schema !== LINK_SCHEMA) throw new Error("unsupported manifest schema");
+  const bundle = objectValue(input.bundle);
+  const cryptoInfo = objectValue(input.crypto);
+  const thread = objectValue(input.thread);
+  const sha256 = stringValue(bundle.sha256).toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error("bad_bundle_sha256");
+  if (cryptoInfo.alg !== "AES-256-GCM") throw new Error("unsupported manifest crypto");
+  const nonce = stringValue(cryptoInfo.nonce);
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) throw new Error("bad_crypto_nonce");
+  if (cryptoInfo.key_ref !== "url-fragment:k") throw new Error("unsupported_key_ref");
+
+  const out = {
+    schema: LINK_SCHEMA,
+    created_at: stringValue(input.created_at).slice(0, 64),
+    thread: {
+      id: stringValue(thread.id).slice(0, limits.maxThreadIDChars),
+      title: stringValue(thread.title).slice(0, limits.maxTitleChars)
+    },
+    bundle: {
+      url: "",
+      sha256,
+      bytes: 0
+    },
+    crypto: {
+      alg: "AES-256-GCM",
+      nonce,
+      key_ref: "url-fragment:k"
+    },
+    import: importInfo()
+  };
+  const preview = normalizePreview(input.preview, limits);
+  if (preview) out.preview = preview;
+  return out;
+}
+
+function normalizePreview(value, limits) {
+  if (value == null) return null;
+  if (!value || typeof value !== "object") throw new Error("bad_preview");
+  if (value.schema !== "agent-capsule.preview.v1") throw new Error("unsupported_preview_schema");
+  const cryptoInfo = objectValue(value.crypto);
+  if (cryptoInfo.alg !== "AES-256-GCM") throw new Error("unsupported_preview_crypto");
+  const nonce = stringValue(cryptoInfo.nonce);
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) throw new Error("bad_preview_nonce");
+  if (cryptoInfo.key_ref !== "url-fragment:k") throw new Error("unsupported_preview_key_ref");
+  const payload = stringValue(value.payload);
+  if (byteLength(payload) > limits.maxPreviewPayloadBytes) throw new Error("preview_too_large");
   return {
-    maxBlobBytes: envInt(env, "MAX_BLOB_BYTES", 2 * 1024 * 1024),
+    schema: "agent-capsule.preview.v1",
+    crypto: {
+      alg: "AES-256-GCM",
+      nonce,
+      key_ref: "url-fragment:k"
+    },
+    payload
+  };
+}
+
+async function verifyUploadToken(request, env) {
+  const expected = uploadToken(env);
+  if (expected === "") return true;
+  const provided = bearerToken(request);
+  if (provided === "") return false;
+  return timingSafeTokenEqual(provided, expected);
+}
+
+function uploadAuthRequired(env) {
+  return uploadToken(env) !== "";
+}
+
+function uploadToken(env) {
+  return stringValue(env.CAPSULE_WORKER_TOKEN).trim();
+}
+
+function bearerToken(request) {
+  const value = request.headers.get("authorization") || "";
+  const match = value.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+async function timingSafeTokenEqual(provided, expected) {
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected))
+  ]);
+  const left = new Uint8Array(providedHash);
+  const right = new Uint8Array(expectedHash);
+  let diff = left.length ^ right.length;
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    diff |= (left[i] || 0) ^ (right[i] || 0);
+  }
+  return diff === 0;
+}
+
+function readLimits(env) {
+  const maxBlobBytes = envInt(env, "MAX_BLOB_BYTES", 2 * 1024 * 1024);
+  const maxManifestBytes = envInt(env, "MAX_MANIFEST_BYTES", 1536 * 1024);
+  return {
+    maxBlobBytes,
+    maxManifestBytes,
+    maxPreviewPayloadBytes: envInt(env, "MAX_PREVIEW_PAYLOAD_BYTES", 1024 * 1024),
+    maxRequestBytes: envInt(env, "MAX_REQUEST_BYTES", maxBlobBytes + maxManifestBytes + 64 * 1024),
+    maxShareBytes: envInt(env, "MAX_SHARE_BYTES", maxBlobBytes + maxManifestBytes),
+    maxTitleChars: envInt(env, "MAX_TITLE_CHARS", 180),
+    maxThreadIDChars: envInt(env, "MAX_THREAD_ID_CHARS", 128),
     maxTtlSeconds: envInt(env, "MAX_TTL_SECONDS", 24 * 60 * 60),
     maxDownloadsPerShare: envInt(env, "MAX_DOWNLOADS_PER_SHARE", 3),
     liveBytesLimit: envInt(env, "LIVE_BYTES_LIMIT", 4 * GB),
@@ -1032,6 +1165,18 @@ function readLimits(env) {
 function envInt(env, key, fallback) {
   const value = Number(env[key]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function objectValue(value) {
+  return value && typeof value === "object" ? value : {};
+}
+
+function stringValue(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function byteLength(value) {
+  return new TextEncoder().encode(String(value || "")).byteLength;
 }
 
 function json(value, status = 200) {
