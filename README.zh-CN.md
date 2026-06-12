@@ -86,9 +86,6 @@ capsule import handoff-topic.capsule.zip --target codex --target-cwd . --execute
 capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
 ```
 
-`capsule import` 默认只做 dry-run；只有带 `--execute` 才会真正写入。
-只有在你想提前预览计划写入内容时，才需要单独跑 dry-run。
-
 ## 隐私承诺
 
 链接分享时，Agent Capsule 会先在本机加密胶囊再上传。托管服务、Worker、R2 bucket 或 S3 兼容 bucket 只会收到加密后的胶囊字节和加密后的预览 payload。没有 `#k=...` fragment key，这些服务无法解密会话内容。

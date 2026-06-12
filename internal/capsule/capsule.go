@@ -481,7 +481,7 @@ Start here:
 Important boundaries:
 
 - Do not migrate auth, provider credentials, or secrets.
-- capsule import is dry-run by default; --execute is required to write. Use dry-run only when you need to preview planned writes before an approved import.
+- Only import after the user approves local Codex history writes; the recovery command above includes the required --execute flag.
 - Import always creates a new thread id, like a Codex session fork.
 - This capsule may include image assets referenced by the Codex session; inspect image counts before importing.
 

@@ -69,7 +69,6 @@ type LinkImport struct {
 	Tool           string `json:"tool"`
 	Command        string `json:"command"`
 	InstallCommand string `json:"install_command,omitempty"`
-	DryRunCommand  string `json:"dry_run_command,omitempty"`
 	ExecuteCommand string `json:"execute_command,omitempty"`
 	DocsURL        string `json:"docs_url,omitempty"`
 	SkillURL       string `json:"skill_url,omitempty"`
@@ -340,7 +339,6 @@ func buildLinkManifest(exported *ExportResult, enc encryptedCapsule, service str
 			Tool:           "capsule",
 			Command:        "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
 			InstallCommand: InstallCmd,
-			DryRunCommand:  "capsule import \"<this-url>\" --target codex --target-cwd .",
 			ExecuteCommand: "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
 			DocsURL:        DefaultRepo,
 			SkillURL:       DefaultSkill,

@@ -1,6 +1,6 @@
 ---
 name: agent-capsule
-description: Use when Codex needs to install or use Agent Capsule to export, share, inspect, import, restore, or verify coding agent sessions, `.capsule.zip` files, or encrypted Agent Capsule links. Covers CLI setup, sender workflows, receiver bootstrap, approved import into local Codex history, optional dry-run previews, import-as-new semantics, secret-scan handling, and verification.
+description: Use when Codex needs to install or use Agent Capsule to export, share, inspect, import, restore, or verify coding agent sessions, `.capsule.zip` files, or encrypted Agent Capsule links. Covers CLI setup, sender workflows, receiver bootstrap, approved import into local Codex history, import-as-new semantics, secret-scan handling, and verification.
 ---
 
 # Agent Capsule
@@ -67,18 +67,12 @@ For local zip capsules, inspect first:
 capsule inspect <file>.capsule.zip
 ```
 
-For encrypted share links, the browser preview and manifest validate that the link shape is usable. Do not spend an extra download on dry-run unless the user explicitly wants to preview planned writes.
+For encrypted share links, the browser preview and manifest validate that the link shape is usable.
 
 Import into the intended project directory after the user approves local Codex history writes:
 
 ```bash
 capsule import <file-or-url> --target codex --target-cwd . --execute
-```
-
-If the user asks to preview writes before importing, use the CLI dry-run mode:
-
-```bash
-capsule import <file-or-url> --target codex --target-cwd .
 ```
 
 Agent Capsule import always creates a new Codex thread, like a session fork. Never design the workflow around replacing or overwriting the source thread, even when source and target use the same `CODEX_HOME`.
@@ -97,4 +91,4 @@ A capsule with `safety.status = blocked` can still be imported locally; treat it
 
 Do not migrate provider credentials, auth sessions, cloud state, API keys, or assume encrypted reasoning can be cryptographically continued on another machine.
 
-Do not write to local Codex history without `--execute` and explicit user approval. Dry-run remains available as an optional planned-write preview, but it is not required in the normal import flow.
+Do not write to local Codex history without `--execute` and explicit user approval.

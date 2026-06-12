@@ -3,7 +3,6 @@ const GB = 1024 * 1024 * 1024;
 const DEFAULT_INSTALL_COMMAND = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main";
 const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
 const DEFAULT_SKILL_URL = "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule";
-const DEFAULT_DRY_RUN_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd .";
 const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";
 const SHARE_ID_BYTES = 12;
 const SHARE_ID_MAX_ATTEMPTS = 5;
@@ -303,7 +302,6 @@ function importInfo() {
     tool: "capsule",
     command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
     install_command: DEFAULT_INSTALL_COMMAND,
-    dry_run_command: quoteThisURL(DEFAULT_DRY_RUN_COMMAND),
     execute_command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
     docs_url: DEFAULT_DOCS_URL,
     skill_url: DEFAULT_SKILL_URL
@@ -356,7 +354,7 @@ function sharePageHTML(request, manifest, id) {
       <section class="agents-card">
         <p class="agents-kicker">FOR AGENTS</p>
         <h2 id="agents-title">Restore in Codex</h2>
-        <p class="agents-copy">Give this URL to a coding agent. It can install the importer, dry-run the write, then import the complete session as a new Codex thread.</p>
+        <p class="agents-copy">Give this URL to a coding agent. It can install the importer and import the complete session as a new Codex thread.</p>
 
         <div class="command-block">
           <div class="command-head">
@@ -364,14 +362,6 @@ function sharePageHTML(request, manifest, id) {
             <button type="button" data-copy="install-command">Copy</button>
           </div>
           <pre id="install-command"></pre>
-        </div>
-
-        <div class="command-block">
-          <div class="command-head">
-            <span>Dry run</span>
-            <button type="button" data-copy="dry-run-command">Copy</button>
-          </div>
-          <pre id="dry-run-command"></pre>
         </div>
 
         <div class="command-block emphasized">
@@ -920,7 +910,6 @@ function setStatus(text, kind = "info") {
 
 function renderCommands(importInfo) {
   $("install-command").textContent = importInfo.install_command || metadata.import.install_command;
-  $("dry-run-command").textContent = commandText(importInfo.dry_run_command || metadata.import.dry_run_command);
   $("execute-command").textContent = commandText(importInfo.execute_command || importInfo.command || metadata.import.execute_command);
 }
 

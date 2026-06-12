@@ -107,7 +107,7 @@ func runImport(args []string) error {
 	target := fs.String("target", "codex", "import target (only codex is supported in v0.1)")
 	home := fs.String("home", "", "target CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
 	targetCWD := fs.String("target-cwd", "", "target cwd for the imported Codex thread (defaults to current directory)")
-	execute := fs.Bool("execute", false, "perform writes; without this import is a dry-run")
+	execute := fs.Bool("execute", false, "write the imported thread into local Codex history")
 	capsulePath := ""
 	parseArgs := args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {

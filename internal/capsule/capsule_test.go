@@ -598,7 +598,7 @@ func TestShareWorkerManifestIncludesPreviewAndAgentCommands(t *testing.T) {
 	if captured.Import.InstallCommand != InstallCmd {
 		t.Fatalf("install command = %q", captured.Import.InstallCommand)
 	}
-	if captured.Import.DryRunCommand == "" || captured.Import.ExecuteCommand == "" || captured.Import.DocsURL != DefaultRepo || captured.Import.SkillURL != DefaultSkill {
+	if captured.Import.ExecuteCommand == "" || captured.Import.DocsURL != DefaultRepo || captured.Import.SkillURL != DefaultSkill {
 		t.Fatalf("missing import metadata: %+v", captured.Import)
 	}
 	if captured.Preview == nil {

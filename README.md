@@ -105,10 +105,6 @@ Verify the imported thread:
 capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
 ```
 
-`capsule import` is a dry-run unless `--execute` is provided.
-Use that dry-run mode only when you want to preview planned writes before an
-approved import.
-
 ## Privacy commitments
 
 For link sharing, Agent Capsule encrypts the capsule locally before upload. The
