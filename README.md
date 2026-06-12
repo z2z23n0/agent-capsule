@@ -1,51 +1,117 @@
-# agent-capsule
+# Agent Capsule
 
-`agent-capsule` is a local Codex session handoff tool. It exports one Codex
-thread into a standard `.capsule.zip` file and imports that file into another
-local Codex UI as a new thread.
+Agent Capsule turns a Codex session into a shareable capsule.
 
-The CLI name is `capsule`.
+You can export a local Codex thread as a standard `.capsule.zip` file, or as an
+encrypted share link. The receiver can import it into their own Codex setup,
+open the full conversation, and continue the work.
+
+The CLI command is `capsule`.
+
+[中文 README](README.zh-CN.md)
+
+## Why
+
+Sometimes you want to share the whole agent conversation: the reasoning trail,
+the debugging path, and the record of how a problem was found.
+
+Sometimes you want to hand off unfinished work: a bug investigation that is not
+done yet, or code that is only halfway through.
+
+Agent Capsule packages that session into an inspectable, importable capsule so
+the receiver gets more than a chat transcript. They can restore it into Codex
+and keep working from there.
+
+## Status
+
+Agent Capsule currently supports Codex export and import.
+
+Claude Code support and cross-agent export/import are planned next.
+
+## Install
 
 ```bash
 go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
-
-capsule export --thread current
-capsule export --thread current --name "handoff topic"
-capsule share --thread current
-capsule share --thread current --format zip
-capsule inspect session.capsule.zip
-capsule import session.capsule.zip --target codex --target-cwd . --execute
-capsule import "https://example.workers.dev/s/<id>#k=<key>" --target codex --target-cwd . --execute
-capsule verify --home ~/.codex --thread <thread-id> --target-cwd .
 ```
 
-The zip root includes `AGENT_README.md`, so a receiving agent can inspect the
-file with ordinary zip tooling before installing this CLI.
+## Quick start: file handoff
+
+Export the current thread:
+
+```bash
+capsule export --thread current --name "handoff topic"
+```
+
+Inspect the capsule before importing:
+
+```bash
+capsule inspect handoff-topic.capsule.zip
+```
+
+Dry-run the import:
+
+```bash
+capsule import handoff-topic.capsule.zip --target codex --target-cwd .
+```
+
+Write the imported thread into your local Codex home:
+
+```bash
+capsule import handoff-topic.capsule.zip --target codex --target-cwd . --execute
+```
+
+Verify the imported thread:
+
+```bash
+capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
+```
+
+`capsule import` is a dry-run unless `--execute` is provided.
 
 ## Link sharing
 
-`capsule share` exports the thread to a temporary `.capsule.zip`, runs the same
-secret scan as `capsule export`, encrypts the zip with AES-256-GCM, uploads only
-ciphertext, and prints a link. The decryption key lives in the URL fragment:
+Agent Capsule can also create encrypted share links:
+
+```bash
+capsule share --thread current --service worker --endpoint https://example.workers.dev
+```
+
+A share link looks like this:
 
 ```text
 https://<worker-host>/s/<share-id>#k=<base64url-key>
 ```
 
-Opening the link in a browser shows an encrypted, locally decrypted session
-preview for humans. The same page also exposes install, dry-run, and import
-commands so an agent can restore the complete session into the receiver's
-native Codex UI as a new thread.
+The capsule is encrypted with AES-256-GCM before upload. The service stores the
+ciphertext and manifest; the decryption key lives in the URL fragment and is not
+sent to the server by normal browser requests.
 
-If link sharing fails because the Worker is unavailable, quota rejects the
-upload, or the network fails, the command writes a local `.capsule.zip` and
-returns `status: fallback_zip`.
+The browser page shows a locally decrypted preview and includes agent-friendly
+install, dry-run, and import commands.
 
-Official sharing uses `--service official` and reads its endpoint from
-`CAPSULE_OFFICIAL_ENDPOINT` unless `--endpoint` is provided. BYO Worker sharing
-uses `--service worker --endpoint https://...` and optionally `--token` or
-`CAPSULE_WORKER_TOKEN`. BYO S3/R2 sharing uses `--service s3` with these flags
-or matching environment variables:
+If link upload fails because the endpoint is missing, unavailable, or over
+quota, Agent Capsule writes a local `.capsule.zip` fallback and returns
+`status: fallback_zip`.
+
+## Official, Worker, and S3 sharing
+
+`capsule share` defaults to `--service official`. In local development, do not
+assume an official endpoint is available. Configure one explicitly:
+
+```bash
+export CAPSULE_OFFICIAL_ENDPOINT=https://...
+capsule share --thread current
+```
+
+For a self-hosted Cloudflare Worker:
+
+```bash
+capsule share --thread current \
+  --service worker \
+  --endpoint https://example.workers.dev
+```
+
+For S3-compatible storage such as R2:
 
 ```bash
 capsule share --thread current --service s3 \
@@ -57,13 +123,90 @@ capsule share --thread current --service s3 \
   --s3-public-base-url https://pub.example/capsules
 ```
 
-The open Worker template lives in `deploy/cloudflare-worker/`. Copy
-`wrangler.toml.example` to `wrangler.toml`, bind a private R2 bucket and the
-`BudgetGate` Durable Object, then deploy with Wrangler. Official deployments use
-the same code; bucket names, secrets, namespaces, and hosted endpoint settings
-are intentionally not committed.
+## Deploy your own Worker
 
-For BYO Worker deployments, set `CAPSULE_WORKER_TOKEN` with `wrangler secret put`
-if you want uploads to require `capsule share --token ...` or
-`CAPSULE_WORKER_TOKEN` on the client. Without that Worker secret, the template
-continues to allow anonymous uploads with the built-in size and budget gates.
+The Worker template lives in `deploy/cloudflare-worker/`.
+
+```bash
+cd deploy/cloudflare-worker
+npm install
+cp wrangler.toml.example wrangler.toml
+npm run dev
+```
+
+Before deploying, bind:
+
+- a private R2 bucket as `CAPSULE_BUCKET`
+- the `BudgetGate` Durable Object
+- optional upload auth with `CAPSULE_WORKER_TOKEN`
+
+Deploy with:
+
+```bash
+npm run deploy
+```
+
+Do not commit real `wrangler.toml` files or secrets.
+
+## What is inside a capsule
+
+A `.capsule.zip` contains:
+
+```text
+manifest.json
+AGENT_README.md
+codex/session.jsonl
+codex/index-entry.json
+codex/thread-row.json
+agent/restore.md
+safety/scan.json
+checksums.json
+```
+
+The root `AGENT_README.md` exists so a receiving agent can inspect an ordinary
+zip file and understand how to restore it before installing anything.
+
+## Safety model
+
+Capsules can contain sensitive conversation content, local paths, tool output,
+prompts, and accidental secrets.
+
+Agent Capsule runs a best-effort secret scan during export and share. If it
+finds high-confidence secrets, export fails unless you explicitly pass:
+
+```bash
+--unsafe-include-secrets
+```
+
+Only use that flag when you have reviewed the capsule and intentionally want to
+share it.
+
+Link sharing uploads encrypted bytes, but anyone with the full URL including
+`#k=...` can decrypt the capsule.
+
+## What Agent Capsule does not do
+
+Agent Capsule does not migrate provider credentials, auth sessions, cloud state,
+or API keys.
+
+It does not guarantee that encrypted reasoning blobs from one machine can be
+cryptographically continued on another machine.
+
+## Development
+
+Run the Go tests:
+
+```bash
+go test ./internal/capsule ./internal/codex
+```
+
+Run Worker checks:
+
+```bash
+npm --prefix deploy/cloudflare-worker test
+npm --prefix deploy/cloudflare-worker run check
+```
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
