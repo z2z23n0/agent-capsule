@@ -148,13 +148,15 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.equal(page.status, 200);
   const html = await page.text();
   assert.match(html, /这里是可读预览/);
-  assert.match(html, /导入到 Codex/);
+  assert.match(html, /FOR AGENTS/);
+  assert.match(html, /Restore in Codex/);
+  assert.match(html, /agents-panel/);
   assert.match(html, /codex-thread/);
   assert.match(html, /process-step/);
   assert.match(html, /function processSummary/);
   assert.match(html, /function renderMarkdown/);
   assert.match(html, /function isInternalContextEntry/);
-  assert.doesNotMatch(html, /<details class="restore-drawer" open>/);
+  assert.doesNotMatch(html, /restore-drawer/);
   assert.match(html, /application\/agent-capsule\+json/);
   assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
 

@@ -331,48 +331,51 @@ function sharePageHTML(request, manifest, id) {
       <div class="capsule-copy">
         <p class="capsule-kicker">Capsule preview</p>
         <h1 id="session-title">${escapeHTML(title)}</h1>
+        <p class="preview-note">这里是可读预览，不是完整原生线程。完整 session 可以交给 agent 导入到你自己的 Codex 原生 UI 里继续。</p>
         <div class="meta-line">
           <span id="counts">正在等待预览</span>
           <span id="expires-at">加密链接</span>
         </div>
       </div>
+    </header>
 
-      <details class="restore-drawer">
-        <summary>
-          <span>导入到 Codex</span>
-          <small>完整 session</small>
-        </summary>
-        <p class="restore-note">这里是可读预览，不是完整原生线程。把当前链接交给 agent，它可以安装 capsule 并导入到你自己的 Codex 原生 UI 里继续。</p>
+    <div class="share-layout">
+      <section class="preview-column" aria-label="Session preview">
+        <div id="status" class="status">正在读取这个链接里的加密预览。</div>
+        <section id="transcript" class="codex-thread" aria-live="polite"></section>
+      </section>
+
+      <aside class="agents-panel" aria-labelledby="agents-title">
+        <p class="agents-kicker">FOR AGENTS</p>
+        <h2 id="agents-title">Restore in Codex</h2>
+        <p class="agents-copy">Give this URL to a coding agent. It can install the importer, dry-run the write, then import the complete session as a new Codex thread.</p>
         <div class="restore-grid">
           <div class="command-block">
             <div class="command-head">
-              <span>安装 CLI</span>
-              <button type="button" data-copy="install-command">复制</button>
+              <span>Install</span>
+              <button type="button" data-copy="install-command">Copy</button>
             </div>
             <pre id="install-command"></pre>
           </div>
 
           <div class="command-block">
             <div class="command-head">
-              <span>预演导入</span>
-              <button type="button" data-copy="dry-run-command">复制</button>
+              <span>Dry run</span>
+              <button type="button" data-copy="dry-run-command">Copy</button>
             </div>
             <pre id="dry-run-command"></pre>
           </div>
 
-          <div class="command-block">
+          <div class="command-block emphasized">
             <div class="command-head">
-              <span>导入并恢复</span>
-              <button type="button" data-copy="execute-command">复制</button>
+              <span>Import</span>
+              <button type="button" data-copy="execute-command">Copy</button>
             </div>
             <pre id="execute-command"></pre>
           </div>
         </div>
-      </details>
-    </header>
-
-    <div id="status" class="status">正在读取这个链接里的加密预览。</div>
-    <section id="transcript" class="codex-thread" aria-live="polite"></section>
+      </aside>
+    </div>
   </main>
   <script>${sharePageJS()}</script>
 </body>
@@ -393,7 +396,10 @@ function sharePageCSS() {
   --panel: #eeeeef;
   --panel-soft: #f7f7f8;
   --code-bg: #eceeef;
+  --command-bg: #101513;
+  --command-ink: #eef3ef;
   --link: #1f73d2;
+  --accent: #2f6f66;
   --warn: #86651f;
   --error: #a33a32;
 }
@@ -408,15 +414,11 @@ body {
 }
 button, a { font: inherit; }
 .codex-shell {
-  width: min(1080px, calc(100% - 40px));
+  width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
   padding: 48px 0 88px;
 }
 .capsule-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 28px;
   padding: 0 0 22px;
   border-bottom: 1px solid var(--line);
 }
@@ -435,6 +437,13 @@ h1 {
   letter-spacing: 0;
   overflow-wrap: anywhere;
 }
+.preview-note {
+  max-width: 760px;
+  margin: 11px 0 0;
+  color: var(--muted-strong);
+  font-size: 15px;
+  line-height: 1.55;
+}
 .meta-line {
   display: flex;
   flex-wrap: wrap;
@@ -443,41 +452,47 @@ h1 {
   color: var(--muted);
   font-size: 13px;
 }
-.restore-drawer {
-  flex: 0 0 min(390px, 42vw);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel-soft);
-  overflow: hidden;
+.share-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  gap: 48px;
+  align-items: start;
 }
-.restore-drawer summary {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  padding: 12px 14px;
-  list-style: none;
+.preview-column {
+  min-width: 0;
+}
+.agents-panel {
+  position: sticky;
+  top: 32px;
+  margin-top: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(255,255,255,.98);
+  padding: 30px 28px;
+  box-shadow: 0 18px 46px rgba(31,35,40,.07);
+}
+.agents-kicker {
+  margin: 0 0 12px;
+  color: var(--accent);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 760;
+  letter-spacing: 0;
 }
-.restore-drawer summary::-webkit-details-marker { display: none; }
-.restore-drawer summary small {
-  color: var(--muted);
-  font-weight: 500;
-  white-space: nowrap;
-}
-.restore-note {
+.agents-panel h2 {
   margin: 0;
-  padding: 0 14px 12px;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+.agents-copy {
+  margin: 18px 0 28px;
   color: var(--muted-strong);
-  font-size: 13px;
+  font-size: 17px;
   line-height: 1.55;
 }
 .restore-grid {
   display: grid;
-  gap: 8px;
-  padding: 0 12px 12px;
+  gap: 14px;
 }
 .status {
   margin: 22px 0 30px;
@@ -678,11 +693,12 @@ details.process-step[open] .chevron { transform: rotate(-135deg); }
 }
 .command-block {
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 8px;
   overflow: hidden;
-  background: white;
+  background: var(--command-bg);
   min-width: 0;
 }
+.command-block.emphasized { border-color: rgba(47,111,102,.65); }
 .command-head {
   display: flex;
   justify-content: space-between;
@@ -697,27 +713,40 @@ details.process-step[open] .chevron { transform: rotate(-135deg); }
 .command-head button {
   border: 1px solid var(--line);
   background: white;
-  color: var(--link);
-  border-radius: 7px;
-  padding: 3px 8px;
+  color: #123d37;
+  border-radius: 999px;
+  padding: 4px 10px;
   cursor: pointer;
   white-space: nowrap;
+  font-weight: 650;
 }
 .command-block pre {
-  color: var(--ink);
-  padding: 10px;
-  font-size: 12px;
+  color: var(--command-ink);
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+@media (max-width: 900px) {
+  .share-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .agents-panel {
+    position: static;
+    order: -1;
+    margin: 18px 0 2px;
+  }
 }
 @media (max-width: 760px) {
   .codex-shell {
     width: min(100% - 22px, 720px);
     padding: 22px 0 64px;
   }
-  .capsule-bar {
-    flex-direction: column;
-    gap: 14px;
+  .agents-panel {
+    padding: 22px 18px;
   }
-  .restore-drawer { flex-basis: auto; width: 100%; }
+  .agents-panel h2 { font-size: 25px; }
+  .agents-copy { font-size: 15px; margin-bottom: 20px; }
   .status { margin: 18px 0 24px; }
   .message-row { margin: 24px 0; }
   .message-row.user { margin-bottom: 38px; }
@@ -1119,7 +1148,7 @@ document.addEventListener("click", async (event) => {
   if (!node) return;
   await navigator.clipboard.writeText(node.textContent);
   const old = button.textContent;
-  button.textContent = "已复制";
+  button.textContent = "Copied";
   setTimeout(() => { button.textContent = old; }, 1200);
 });
 
@@ -1143,7 +1172,7 @@ async function boot() {
     }
     const transcript = await decryptPreview(manifest.preview, key);
     renderTranscript(transcript);
-    setStatus("预览已在浏览器本地解密。页面内容只是预览，完整 session 可以通过上方“导入到 Codex”恢复到你的 Codex 原生 UI。");
+    setStatus("预览已在浏览器本地解密。页面内容只是预览，完整 session 可以通过 For Agents 里的命令恢复到你的 Codex 原生 UI。");
   } catch (error) {
     $("counts").textContent = "预览不可用";
     setStatus(error && error.message ? error.message : String(error), "error");
