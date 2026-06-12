@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/z2z23n0/agent-capsule/internal/codex"
 )
 
 const (
@@ -91,6 +93,9 @@ func buildEncryptedPreview(capsulePath string, key []byte) (*LinkPreview, error)
 }
 
 func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAssetFile) PreviewTranscript {
+	if normalized, err := codex.NormalizeActiveSession(session, manifest.ThreadID); err == nil {
+		session = normalized
+	}
 	transcript := PreviewTranscript{
 		Schema:    PreviewSchema,
 		ThreadID:  manifest.ThreadID,

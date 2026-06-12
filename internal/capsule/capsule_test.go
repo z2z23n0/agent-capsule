@@ -383,6 +383,31 @@ func TestPreviewTranscriptIncludesMessagesAndToolSummaries(t *testing.T) {
 	}
 }
 
+func TestPreviewTranscriptSkipsRolledBackTurns(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Rollback demo",
+		SourceCWD:   "/source/project",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	transcript := buildPreviewTranscript(manifest, []byte(rolledBackSession(testThreadID)))
+	if transcript.MessageCount != 3 {
+		t.Fatalf("message_count = %d", transcript.MessageCount)
+	}
+	if transcript.ToolCount != 1 {
+		t.Fatalf("tool_count = %d", transcript.ToolCount)
+	}
+	preview := previewEntriesText(transcript)
+	if strings.Contains(preview, "rolled back") || strings.Contains(preview, "call_drop") {
+		t.Fatalf("rolled-back turn leaked into preview:\n%s", preview)
+	}
+	for _, want := range []string{"keep first request", "keep current request", "functions.exec_command"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("preview missing %q:\n%s", want, preview)
+		}
+	}
+}
+
 func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	manifest := Manifest{
 		ThreadID:    testThreadID,
@@ -402,6 +427,55 @@ func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	}
 	if strings.Contains(transcript.Entries[0].Text, "AGENTS.md") {
 		t.Fatal("internal AGENTS.md context leaked into preview")
+	}
+}
+
+func TestExportWritesOnlyActiveSessionBranch(t *testing.T) {
+	home := createFakeCodexHomeWithSession(t, rolledBackSession(testThreadID))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: testThreadID, Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	if strings.Contains(session, "rolled back") || strings.Contains(session, "call_drop") {
+		t.Fatalf("rolled-back turn leaked into export:\n%s", session)
+	}
+	if count := strings.Count(session, `"type":"session_meta"`); count != 1 {
+		t.Fatalf("session_meta count = %d\n%s", count, session)
+	}
+	if !strings.Contains(session, "keep current request") {
+		t.Fatalf("export missing current turn:\n%s", session)
+	}
+}
+
+func TestRestoreNormalizesLegacyRolledBackCapsule(t *testing.T) {
+	out := writeLegacyRolledBackCapsule(t)
+	targetHome := createEmptyCodexHome(t)
+	targetCWD := t.TempDir()
+	result, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(result.TargetSessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := string(content)
+	if strings.Contains(session, "rolled back") || strings.Contains(session, "call_drop") {
+		t.Fatalf("rolled-back turn leaked into restore:\n%s", session)
+	}
+	if count := strings.Count(session, `"type":"session_meta"`); count != 1 {
+		t.Fatalf("session_meta count = %d\n%s", count, session)
+	}
+	if !strings.Contains(session, result.ThreadID) {
+		t.Fatalf("restored session missing target thread id %q:\n%s", result.ThreadID, session)
+	}
+	verify, err := Verify(targetHome, result.ThreadID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("verify failed: %+v", verify)
 	}
 }
 
@@ -805,6 +879,115 @@ func createFakeCodexHome(t *testing.T) string {
 	return home
 }
 
+func createFakeCodexHomeWithSession(t *testing.T, session string) string {
+	t.Helper()
+	home := createEmptyCodexHome(t)
+	sessionPath := fakeSessionPath(home)
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessionPath, []byte(session), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONL(t, filepath.Join(home, "session_index.jsonl"), map[string]any{
+		"id":          testThreadID,
+		"thread_name": "Rollback demo",
+		"updated_at":  "2026-06-12T00:00:10Z",
+	})
+	db := openTestDB(t, home)
+	defer db.Close()
+	insertThreadRow(t, db, sessionPath)
+	return home
+}
+
+func rolledBackSession(threadID string) string {
+	ancestorID := "019e0000-0000-7000-8000-000000000099"
+	lines := []string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + threadID + `","forked_from_id":"` + ancestorID + `","timestamp":"2026-06-12T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + ancestorID + `","timestamp":"2026-06-11T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_keep_first"}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep first request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"keep first answer"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_keep_first","duration_ms":1}}`,
+		`{"timestamp":"2026-06-12T00:00:05Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_drop"}}`,
+		`{"timestamp":"2026-06-12T00:00:06Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"rolled back request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:07Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_drop","arguments":"{\"cmd\":\"false\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:08Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_drop","output":"rolled back output"}}`,
+		`{"timestamp":"2026-06-12T00:00:09Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"rolled back answer"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:10Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_drop","duration_ms":1}}`,
+		`{"timestamp":"2026-06-12T00:00:11Z","type":"event_msg","payload":{"type":"thread_rolled_back","num_turns":1}}`,
+		`{"timestamp":"2026-06-12T00:00:12Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_keep_current"}}`,
+		`{"timestamp":"2026-06-12T00:00:13Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep current request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:14Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_keep","arguments":"{\"cmd\":\"true\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:15Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_keep","output":"keep current output"}}`,
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func writeLegacyRolledBackCapsule(t *testing.T) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "legacy.capsule.zip")
+	manifest := Manifest{
+		SchemaVersion:             SchemaVersion,
+		ArtifactType:              ArtifactType,
+		CreatedAt:                 "2026-06-12T00:00:00Z",
+		ThreadID:                  testThreadID,
+		ThreadTitle:               "Rollback demo",
+		SourceHome:                "/source/home",
+		SourceCWD:                 "/source/project",
+		SourceSessionRelativePath: "sessions/2026/06/12/rollout-" + testThreadID + ".jsonl",
+		RepoURL:                   DefaultRepo,
+		SkillURL:                  DefaultSkill,
+		InstallCommand:            InstallCmd,
+		RestoreCommand:            "capsule import <this-file>.capsule.zip --target codex --target-cwd . --execute",
+		Files:                     append([]string(nil), RequiredFiles...),
+	}
+	manifestPayload, err := jsonBytes(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPayload, err := jsonBytes(map[string]any{
+		"id":          testThreadID,
+		"thread_name": "Rollback demo",
+		"updated_at":  "2026-06-12T00:00:10Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	threadPayload, err := jsonBytes(map[string]any{
+		"id":           testThreadID,
+		"title":        "Rollback demo",
+		"cwd":          "/source/project",
+		"rollout_path": manifest.SourceSessionRelativePath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanPayload, err := jsonBytes(SafetyScan{Status: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"manifest.json":          manifestPayload,
+		"AGENT_README.md":        []byte("legacy capsule"),
+		"codex/session.jsonl":    []byte(rolledBackSession(testThreadID)),
+		"codex/index-entry.json": indexPayload,
+		"codex/thread-row.json":  threadPayload,
+		"agent/restore.md":       []byte("legacy restore"),
+		"safety/scan.json":       scanPayload,
+	}
+	checksums := buildChecksums(files)
+	checksumPayload, err := jsonBytes(checksums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["checksums.json"] = checksumPayload
+	if err := writeZip(out, files); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func fakeSessionPath(home string) string {
 	return filepath.Join(home, "sessions", "2026", "06", "11", "rollout-2026-06-11T00-00-00-"+testThreadID+".jsonl")
 }
@@ -964,6 +1147,25 @@ func readZipBytes(t *testing.T, path, name string) []byte {
 	}
 	t.Fatalf("missing zip file %s", name)
 	return nil
+}
+
+func previewEntriesText(transcript PreviewTranscript) string {
+	var b strings.Builder
+	for _, entry := range transcript.Entries {
+		b.WriteString(entry.Kind)
+		b.WriteString(" ")
+		b.WriteString(entry.Role)
+		b.WriteString(" ")
+		b.WriteString(entry.Tool)
+		b.WriteString(" ")
+		b.WriteString(entry.Text)
+		b.WriteString(" ")
+		b.WriteString(entry.InputPreview)
+		b.WriteString(" ")
+		b.WriteString(entry.Output)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func containsPathSegment(paths []string, segment string) bool {

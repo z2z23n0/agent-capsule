@@ -177,6 +177,10 @@ func ExportThread(home, threadID string) (*ExportData, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessionBytes, err = NormalizeActiveSession(sessionBytes, threadID)
+	if err != nil {
+		return nil, err
+	}
 	summary := SummarizeSession(sessionBytes)
 	rel, err := filepath.Rel(home, sessionPath)
 	if err != nil {
@@ -252,7 +256,11 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 	if err := writeImageAssets(imagePlan); err != nil {
 		return nil, err
 	}
-	rewritten, err := RewriteSessionForImportWithImages(input.SessionBytes, targetCWD, targetThreadID, imagePlan.pathMap)
+	sessionBytes, err := NormalizeActiveSession(input.SessionBytes, input.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	rewritten, err := RewriteSessionForImportWithImages(sessionBytes, targetCWD, targetThreadID, imagePlan.pathMap)
 	if err != nil {
 		return nil, err
 	}
@@ -388,6 +396,112 @@ func SummarizeSession(content []byte) SessionSummary {
 		}
 	}
 	return summary
+}
+
+type activeSessionLine struct {
+	raw    string
+	item   map[string]any
+	parsed bool
+}
+
+type activeSessionTurn struct {
+	lines []activeSessionLine
+}
+
+// NormalizeActiveSession applies Codex rollback events to a raw session log.
+// Forked Codex transcripts can keep rolled-back turns in the JSONL; exported
+// capsules should preserve the active branch users see in the native UI.
+func NormalizeActiveSession(content []byte, threadID string) ([]byte, error) {
+	var prefix []activeSessionLine
+	var completed []activeSessionTurn
+	var current *activeSessionTurn
+	scanner := bufio.NewScanner(strings.NewReader(string(content)))
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := activeSessionLine{raw: scanner.Text()}
+		var item map[string]any
+		if json.Unmarshal([]byte(strings.TrimSpace(line.raw)), &item) == nil {
+			line.item = item
+			line.parsed = true
+		}
+		eventType, payload := codexEvent(line)
+		if eventType == "thread_rolled_back" {
+			rollbackTurns := int(toInt64(payload["num_turns"], 0))
+			if rollbackTurns > len(completed) {
+				rollbackTurns = len(completed)
+			}
+			if rollbackTurns > 0 {
+				completed = completed[:len(completed)-rollbackTurns]
+			}
+			continue
+		}
+		if eventType == "task_started" {
+			if current != nil {
+				completed = append(completed, *current)
+			}
+			current = &activeSessionTurn{lines: []activeSessionLine{line}}
+			continue
+		}
+		if current != nil {
+			current.lines = append(current.lines, line)
+			if eventType == "task_complete" {
+				completed = append(completed, *current)
+				current = nil
+			}
+			continue
+		}
+		prefix = append(prefix, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	lines := append([]activeSessionLine{}, prefix...)
+	for _, turn := range completed {
+		lines = append(lines, turn.lines...)
+	}
+	if current != nil {
+		lines = append(lines, current.lines...)
+	}
+	return encodeActiveSession(lines, threadID), nil
+}
+
+func codexEvent(line activeSessionLine) (string, map[string]any) {
+	if !line.parsed || stringValue(line.item["type"]) != "event_msg" {
+		return "", nil
+	}
+	payload, _ := line.item["payload"].(map[string]any)
+	return stringValue(payload["type"]), payload
+}
+
+func encodeActiveSession(lines []activeSessionLine, threadID string) []byte {
+	hasMatchingMeta := false
+	for _, line := range lines {
+		if !line.parsed || stringValue(line.item["type"]) != "session_meta" {
+			continue
+		}
+		payload, _ := line.item["payload"].(map[string]any)
+		if threadID == "" || stringValue(payload["id"]) == threadID {
+			hasMatchingMeta = true
+			break
+		}
+	}
+	var out []string
+	keptMeta := false
+	for _, line := range lines {
+		if line.parsed && stringValue(line.item["type"]) == "session_meta" {
+			payload, _ := line.item["payload"].(map[string]any)
+			matchesThread := threadID == "" || stringValue(payload["id"]) == threadID
+			if keptMeta || (hasMatchingMeta && !matchesThread) {
+				continue
+			}
+			keptMeta = true
+		}
+		out = append(out, line.raw)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return []byte(strings.Join(out, "\n") + "\n")
 }
 
 func RewriteSessionForImport(content []byte, targetCWD, targetThreadID string) ([]byte, error) {
