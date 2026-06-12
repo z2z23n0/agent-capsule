@@ -1,0 +1,109 @@
+name: Mainline PR Intent
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  comment:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Install Mainline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          install_dir="$RUNNER_TEMP/bin"
+          work_dir="$RUNNER_TEMP/mainline-install"
+          base_url="https://github.com/mainline-org/mainline/releases/latest/download"
+          mkdir -p "$install_dir" "$work_dir"
+
+          curl -fsSL "$base_url/checksums.txt" -o "$work_dir/checksums.txt"
+          archive="$(
+            awk '$2 ~ /^mainline_[^_]+_linux_amd64\.tar\.gz$/ { print $2; exit }' \
+              "$work_dir/checksums.txt"
+          )"
+          if [ -z "$archive" ]; then
+            echo "Could not find linux amd64 Mainline archive in latest release checksums." >&2
+            exit 1
+          fi
+
+          curl -fsSL "$base_url/$archive" -o "$work_dir/$archive"
+          expected="$(awk -v name="$archive" '$2 == name { print $1 }' "$work_dir/checksums.txt")"
+          actual="$(LC_ALL=C LANG=C sha256sum "$work_dir/$archive" | awk '{ print $1 }')"
+          if [ "$expected" != "$actual" ]; then
+            echo "Mainline archive checksum mismatch." >&2
+            exit 1
+          fi
+
+          LC_ALL=C LANG=C tar -xzf "$work_dir/$archive" -C "$work_dir"
+          install -m 0755 "$work_dir/mainline" "$install_dir/mainline"
+          "$install_dir/mainline" version --json
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Generate Mainline PR intent comment
+        run: |
+          mainline pr-comment \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --branch "${{ github.event.pull_request.head.ref }}" \
+            > /tmp/mainline-pr-comment.md
+
+      - name: Upsert Mainline PR intent comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const bodyMarker = "<!-- mainline:pr-description:start -->";
+            const commentMarker = "<!-- mainline:pr-comment:v1 -->";
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const issue_number = pr.number;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+            const existing = comments.find((comment) =>
+              comment.user.type === "Bot" &&
+              comment.body &&
+              comment.body.includes(commentMarker)
+            );
+
+            if ((pr.body || "").includes(bodyMarker)) {
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                });
+              }
+              return;
+            }
+
+            const body = fs.readFileSync("/tmp/mainline-pr-comment.md", "utf8");
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
