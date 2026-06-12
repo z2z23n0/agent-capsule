@@ -49,12 +49,42 @@ Capsule files and links do not depend on the skill. They include agent-facing
 bootstrap instructions so a receiving agent can still install the CLI, inspect,
 import, and verify the restored thread.
 
-## Quick start: file handoff
+## Quick start: link handoff
 
-Export the current thread:
+Export the current thread as an encrypted share link:
 
 ```bash
-capsule export --thread current --name "handoff topic"
+capsule export --thread current
+```
+
+The default export format is `link`. A share link looks like this:
+
+```text
+https://<worker-host>/s/<share-id>#k=<base64url-key>
+```
+
+The capsule is encrypted with AES-256-GCM before upload. The service stores the
+ciphertext and manifest; the decryption key lives in the URL fragment and is not
+sent to the server by normal browser requests.
+
+The browser page shows a locally decrypted preview and includes agent-friendly
+install, skill, and import commands.
+
+For sessions with images, the browser preview shows image thumbnails when they
+fit the preview size limit. Large image-heavy sessions still import from the
+complete encrypted capsule.
+
+If link upload fails because the service is unavailable or over quota, Agent
+Capsule writes a local `.capsule.zip` fallback and returns
+`status: fallback_zip`.
+
+## File handoff
+
+Export the current thread as a local zip capsule only when you explicitly need a
+file:
+
+```bash
+capsule export --thread current --format zip --name "handoff topic"
 ```
 
 Inspect the capsule before importing:
@@ -79,35 +109,6 @@ capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
 Use that dry-run mode only when you want to preview planned writes before an
 approved import.
 
-## Link sharing
-
-Agent Capsule can also create encrypted share links:
-
-```bash
-capsule share --thread current --service worker --endpoint https://example.workers.dev
-```
-
-A share link looks like this:
-
-```text
-https://<worker-host>/s/<share-id>#k=<base64url-key>
-```
-
-The capsule is encrypted with AES-256-GCM before upload. The service stores the
-ciphertext and manifest; the decryption key lives in the URL fragment and is not
-sent to the server by normal browser requests.
-
-The browser page shows a locally decrypted preview and includes agent-friendly
-install, skill, and import commands.
-
-For sessions with images, the browser preview shows image thumbnails when they
-fit the preview size limit. Large image-heavy sessions still import from the
-complete encrypted capsule.
-
-If link upload fails because the endpoint is missing, unavailable, or over
-quota, Agent Capsule writes a local `.capsule.zip` fallback and returns
-`status: fallback_zip`.
-
 ## Privacy commitments
 
 For link sharing, Agent Capsule encrypts the capsule locally before upload. The
@@ -131,18 +132,19 @@ locally.
 
 ## Official, Worker, and S3 sharing
 
-`capsule share` defaults to `--service official`. In local development, do not
-assume an official endpoint is available. Configure one explicitly:
+`capsule export` defaults to `--service official` and uses the hosted endpoint
+`https://agent-capsule.z2z23n0.workers.dev`. In local development, override it
+with `CAPSULE_OFFICIAL_ENDPOINT`:
 
 ```bash
 export CAPSULE_OFFICIAL_ENDPOINT=https://...
-capsule share --thread current
+capsule export --thread current
 ```
 
 For a self-hosted Cloudflare Worker:
 
 ```bash
-capsule share --thread current \
+capsule export --thread current \
   --service worker \
   --endpoint https://example.workers.dev
 ```
@@ -150,7 +152,7 @@ capsule share --thread current \
 For S3-compatible storage such as R2:
 
 ```bash
-capsule share --thread current --service s3 \
+capsule export --thread current --service s3 \
   --s3-endpoint https://<account>.r2.cloudflarestorage.com \
   --s3-bucket agent-capsule \
   --s3-prefix shares \

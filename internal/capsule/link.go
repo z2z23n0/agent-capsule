@@ -28,11 +28,12 @@ import (
 )
 
 const (
-	LinkSchema       = "agent-capsule.link.v1"
-	CryptoAES256GCM  = "AES-256-GCM"
-	DefaultShareMode = "official"
-	ZipShareFormat   = "zip"
-	LinkShareFormat  = "link"
+	LinkSchema              = "agent-capsule.link.v1"
+	CryptoAES256GCM         = "AES-256-GCM"
+	DefaultShareMode        = "official"
+	DefaultOfficialEndpoint = "https://agent-capsule.z2z23n0.workers.dev"
+	ZipShareFormat          = "zip"
+	LinkShareFormat         = "link"
 )
 
 type LinkManifest struct {
@@ -391,14 +392,8 @@ func decryptCapsule(ciphertext, key, nonce []byte) ([]byte, error) {
 }
 
 func uploadViaWorker(ctx context.Context, opts ShareOptions, shareID string, manifest LinkManifest, blob []byte) (string, string, string, []string, error) {
-	endpoint := strings.TrimRight(opts.Endpoint, "/")
 	service := opts.Service
-	if service == "official" && endpoint == "" {
-		endpoint = strings.TrimRight(os.Getenv("CAPSULE_OFFICIAL_ENDPOINT"), "/")
-	}
-	if service == "worker" && endpoint == "" {
-		endpoint = strings.TrimRight(os.Getenv("CAPSULE_WORKER_ENDPOINT"), "/")
-	}
+	endpoint := resolveWorkerEndpoint(service, opts.Endpoint)
 	if endpoint == "" {
 		return "", "", "", nil, fmt.Errorf("%s worker endpoint is not configured", service)
 	}
@@ -460,6 +455,24 @@ func uploadViaWorker(ctx context.Context, opts ShareOptions, shareID string, man
 		return "", "", "", warnings, errors.New("worker response missing share_url")
 	}
 	return out.ShareURL, out.ManifestURL, out.ExpiresAt, warnings, nil
+}
+
+func resolveWorkerEndpoint(service, explicit string) string {
+	endpoint := strings.TrimRight(explicit, "/")
+	if endpoint != "" {
+		return endpoint
+	}
+	if service == "official" {
+		endpoint = strings.TrimRight(os.Getenv("CAPSULE_OFFICIAL_ENDPOINT"), "/")
+		if endpoint != "" {
+			return endpoint
+		}
+		return DefaultOfficialEndpoint
+	}
+	if service == "worker" {
+		return strings.TrimRight(os.Getenv("CAPSULE_WORKER_ENDPOINT"), "/")
+	}
+	return ""
 }
 
 func workerCapabilities(ctx context.Context, client *http.Client, endpoint, token string) (*WorkerCapabilities, error) {

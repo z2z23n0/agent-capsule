@@ -26,8 +26,6 @@ func run(args []string) error {
 	switch args[0] {
 	case "export":
 		return runExport(args[1:])
-	case "share":
-		return runShare(args[1:])
 	case "inspect":
 		return runInspect(args[1:])
 	case "import", "restore":
@@ -42,15 +40,15 @@ func run(args []string) error {
 	}
 }
 
-func runShare(args []string) error {
-	fs := flag.NewFlagSet("share", flag.ExitOnError)
-	thread := fs.String("thread", "current", "thread id to share, or current")
+func runExport(args []string) error {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	thread := fs.String("thread", "current", "thread id to export, or current")
 	home := fs.String("home", "", "source CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
 	out := fs.String("out", "", "fallback/output .capsule.zip path")
 	name := fs.String("name", "", "capsule file name when --out is omitted")
-	format := fs.String("format", "link", "share format: link or zip")
+	format := fs.String("format", "link", "export format: link or zip")
 	service := fs.String("service", "official", "link service: official, worker, or s3")
-	endpoint := fs.String("endpoint", "", "worker endpoint for --service official/worker")
+	endpoint := fs.String("endpoint", "", "override worker endpoint for --service official/worker")
 	token := fs.String("token", "", "worker bearer token (defaults to CAPSULE_WORKER_TOKEN)")
 	unsafe := fs.Bool("unsafe-include-secrets", false, "allow export when secret scan finds high-confidence secrets")
 	s3Endpoint := fs.String("s3-endpoint", "", "S3-compatible endpoint")
@@ -82,29 +80,6 @@ func runShare(args []string) error {
 			Region:          *s3Region,
 			PublicBaseURL:   *s3PublicBase,
 		},
-	})
-	if err != nil {
-		return err
-	}
-	return printJSON(result)
-}
-
-func runExport(args []string) error {
-	fs := flag.NewFlagSet("export", flag.ExitOnError)
-	thread := fs.String("thread", "current", "thread id to export, or current")
-	home := fs.String("home", "", "source CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
-	out := fs.String("out", "", "output .capsule.zip path")
-	name := fs.String("name", "", "capsule file name when --out is omitted")
-	unsafe := fs.Bool("unsafe-include-secrets", false, "allow export when secret scan finds high-confidence secrets")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	result, err := capsule.Export(capsule.ExportOptions{
-		Home:                 *home,
-		Thread:               *thread,
-		Out:                  *out,
-		Name:                 *name,
-		UnsafeIncludeSecrets: *unsafe,
 	})
 	if err != nil {
 		return err
@@ -194,11 +169,9 @@ func usage() {
 
 Usage:
   capsule export --thread current
-  capsule export --thread current --name "handoff topic"
-  capsule share --thread current
-  capsule share --thread current --format zip
-  capsule share --thread current --service worker --endpoint https://example.workers.dev
-  capsule share --thread current --service s3 --s3-endpoint https://<account>.r2.cloudflarestorage.com --s3-bucket agent-capsule --s3-public-base-url https://pub.example/capsules
+  capsule export --thread current --format zip --name "handoff topic"
+  capsule export --thread current --service worker --endpoint https://example.workers.dev
+  capsule export --thread current --service s3 --s3-endpoint https://<account>.r2.cloudflarestorage.com --s3-bucket agent-capsule --s3-public-base-url https://pub.example/capsules
   capsule inspect session.capsule.zip
   capsule import session.capsule.zip --target codex --target-cwd . --execute
   capsule import "https://example.workers.dev/s/share-id#k=..." --target codex --target-cwd . --execute

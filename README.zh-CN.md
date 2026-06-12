@@ -38,12 +38,34 @@ Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)
 胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方
 agent 即使没有预装 skill，也能安装 CLI、检查、导入并验证新 thread。
 
-## 快速开始：文件交接
+## 快速开始：链接交接
 
-导出当前 thread：
+把当前 thread 导出成加密分享链接：
 
 ```bash
-capsule export --thread current --name "handoff topic"
+capsule export --thread current
+```
+
+默认导出格式是 `link`。链接格式类似：
+
+```text
+https://<worker-host>/s/<share-id>#k=<base64url-key>
+```
+
+分享前，胶囊会先用 AES-256-GCM 加密。服务端保存 ciphertext 和 manifest；解密 key 放在 URL fragment 里，正常浏览器请求不会把 fragment 发给服务端。
+
+打开链接后，浏览器页面会在本地解密并展示可读预览，同时给 agent 提供安装、skill 和导入命令。
+
+如果会话包含图片，浏览器预览会在 preview 大小限制内展示图片缩略图。图片很多或很大的 session 仍然可以从完整加密胶囊导入。
+
+如果链接上传因为服务不可用或 quota 限制失败，Agent Capsule 会回退生成本地 `.capsule.zip`，并返回 `status: fallback_zip`。
+
+## 文件交接
+
+只有在你明确需要本地文件时，才把当前 thread 导出成 zip 胶囊：
+
+```bash
+capsule export --thread current --format zip --name "handoff topic"
 ```
 
 导入前先检查：
@@ -67,28 +89,6 @@ capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
 `capsule import` 默认只做 dry-run；只有带 `--execute` 才会真正写入。
 只有在你想提前预览计划写入内容时，才需要单独跑 dry-run。
 
-## 链接分享
-
-Agent Capsule 也可以生成加密分享链接：
-
-```bash
-capsule share --thread current --service worker --endpoint https://example.workers.dev
-```
-
-链接格式类似：
-
-```text
-https://<worker-host>/s/<share-id>#k=<base64url-key>
-```
-
-分享前，胶囊会先用 AES-256-GCM 加密。服务端保存 ciphertext 和 manifest；解密 key 放在 URL fragment 里，正常浏览器请求不会把 fragment 发给服务端。
-
-打开链接后，浏览器页面会在本地解密并展示可读预览，同时给 agent 提供安装、skill 和导入命令。
-
-如果会话包含图片，浏览器预览会在 preview 大小限制内展示图片缩略图。图片很多或很大的 session 仍然可以从完整加密胶囊导入。
-
-如果链接上传因为 endpoint 缺失、服务不可用或 quota 限制失败，Agent Capsule 会回退生成本地 `.capsule.zip`，并返回 `status: fallback_zip`。
-
 ## 隐私承诺
 
 链接分享时，Agent Capsule 会先在本机加密胶囊再上传。托管服务、Worker、R2 bucket 或 S3 兼容 bucket 只会收到加密后的胶囊字节和加密后的预览 payload。没有 `#k=...` fragment key，这些服务无法解密会话内容。
@@ -101,17 +101,17 @@ https://<worker-host>/s/<share-id>#k=<base64url-key>
 
 ## 官方服务、自建 Worker 和 S3
 
-`capsule share` 默认使用 `--service official`。本地开发时不要假设官方服务已经可用，可以显式配置：
+`capsule export` 默认使用 `--service official`，并使用托管 endpoint `https://agent-capsule.z2z23n0.workers.dev`。本地开发时，可以用 `CAPSULE_OFFICIAL_ENDPOINT` 覆盖它：
 
 ```bash
 export CAPSULE_OFFICIAL_ENDPOINT=https://...
-capsule share --thread current
+capsule export --thread current
 ```
 
 自建 Cloudflare Worker：
 
 ```bash
-capsule share --thread current \
+capsule export --thread current \
   --service worker \
   --endpoint https://example.workers.dev
 ```
@@ -119,7 +119,7 @@ capsule share --thread current \
 使用 S3/R2 这类兼容存储：
 
 ```bash
-capsule share --thread current --service s3 \
+capsule export --thread current --service s3 \
   --s3-endpoint https://<account>.r2.cloudflarestorage.com \
   --s3-bucket agent-capsule \
   --s3-prefix shares \

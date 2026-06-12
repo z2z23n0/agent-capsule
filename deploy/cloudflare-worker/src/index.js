@@ -1381,7 +1381,7 @@ async function boot() {
     const key = fragmentKey();
     if (!key) {
       $("counts").textContent = "缺少 key";
-      setStatus("这个链接缺少 #k 解密 key。请使用 capsule share 生成的完整 URL。", "warn");
+      setStatus("这个链接缺少 #k 解密 key。请使用 capsule export 生成的完整 URL。", "warn");
       return;
     }
     const transcript = await decryptPreview(manifest.preview, key);

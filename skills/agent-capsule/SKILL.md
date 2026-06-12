@@ -28,23 +28,25 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 
 If `go` is missing or installation fails, report the exact blocker and do not invent a manual restore path.
 
-## Share Or Export
+## Export
 
-For a normal handoff, prefer an encrypted share link:
-
-```bash
-capsule share --thread current
-```
-
-For file-based handoff, create a zip capsule:
+For a normal handoff, export an encrypted share link:
 
 ```bash
-capsule export --thread current --name "<handoff topic>"
+capsule export --thread current
 ```
 
-If the user provides a Worker or S3/R2 target, pass the matching `capsule share` flags instead of uploading the raw session yourself.
+Only when the user explicitly asks for a local file or zip capsule, add
+`--format zip`:
 
-If export or share fails with a secret-scan warning, stop and tell the user what was detected. Only rerun with `--unsafe-include-secrets` after explicit user approval. Secret scan covers session text, not OCR or image pixels, so remind the user to review screenshots and uploaded images when relevant.
+```bash
+capsule export --thread current --format zip --name "<handoff topic>"
+```
+
+If the user provides a Worker or S3/R2 target, pass the matching `capsule export`
+flags instead of uploading the raw session yourself.
+
+If export fails with a secret-scan warning, stop and tell the user what was detected. Only rerun with `--unsafe-include-secrets` after explicit user approval. Secret scan covers session text, not OCR or image pixels, so remind the user to review screenshots and uploaded images when relevant.
 
 Treat a full share URL containing `#k=...` as sensitive. The URL fragment is the decryption key.
 

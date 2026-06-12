@@ -543,6 +543,22 @@ func TestShareWorkerManifestIncludesPreviewAndAgentCommands(t *testing.T) {
 	}
 }
 
+func TestOfficialEndpointResolution(t *testing.T) {
+	t.Setenv("CAPSULE_OFFICIAL_ENDPOINT", "")
+	if got := resolveWorkerEndpoint("official", ""); got != DefaultOfficialEndpoint {
+		t.Fatalf("default official endpoint = %q", got)
+	}
+
+	t.Setenv("CAPSULE_OFFICIAL_ENDPOINT", "https://override.example/")
+	if got := resolveWorkerEndpoint("official", ""); got != "https://override.example" {
+		t.Fatalf("env official endpoint = %q", got)
+	}
+
+	if got := resolveWorkerEndpoint("official", "https://explicit.example/"); got != "https://explicit.example" {
+		t.Fatalf("explicit official endpoint = %q", got)
+	}
+}
+
 func TestRestorePreservesNewSQLiteColumns(t *testing.T) {
 	sourceHome := createFakeCodexHome(t)
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")
