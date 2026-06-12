@@ -356,14 +356,6 @@ function sharePageHTML(request, manifest, id) {
           <pre id="install-command"></pre>
         </div>
 
-        <div class="command-block">
-          <div class="command-head">
-            <span>Dry run</span>
-            <button type="button" data-copy="dry-run-command">Copy</button>
-          </div>
-          <pre id="dry-run-command"></pre>
-        </div>
-
         <div class="command-block emphasized">
           <div class="command-head">
             <span>Import</span>
@@ -835,7 +827,6 @@ function setStatus(text, kind = "info") {
 
 function renderCommands(importInfo) {
   $("install-command").textContent = importInfo.install_command || metadata.import.install_command;
-  $("dry-run-command").textContent = commandText(importInfo.dry_run_command || metadata.import.dry_run_command);
   $("execute-command").textContent = commandText(importInfo.execute_command || importInfo.command || metadata.import.execute_command);
   $("skill-url").textContent = importInfo.skill_url || metadata.import.skill_url || "";
 }

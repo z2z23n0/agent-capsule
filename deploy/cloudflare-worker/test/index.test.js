@@ -201,6 +201,8 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.match(html, /application\/agent-capsule\+json/);
   assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
   assert.match(html, /skills\/agent-capsule/);
+  assert.doesNotMatch(html, /<span>Dry run<\/span>/);
+  assert.doesNotMatch(html, /id="dry-run-command"/);
 
   const jsonResponse = await worker.fetch(new Request(created.share_url, {
     headers: { accept: "application/json" }

@@ -33,11 +33,10 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 ## Agent Skill
 
 Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)。
-这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么先
-inspect 和 dry-run 再导入，以及什么时候必须先问用户再写本地 Codex history。
+这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入，以及什么时候必须先问用户再写本地 Codex history。
 
 胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方
-agent 即使没有预装 skill，也能安装 CLI、检查、dry-run、导入并验证新 thread。
+agent 即使没有预装 skill，也能安装 CLI、检查、导入并验证新 thread。
 
 ## 快速开始：文件交接
 
@@ -53,12 +52,6 @@ capsule export --thread current --name "handoff topic"
 capsule inspect handoff-topic.capsule.zip
 ```
 
-先 dry-run：
-
-```bash
-capsule import handoff-topic.capsule.zip --target codex --target-cwd .
-```
-
 确认后写入本地 Codex：
 
 ```bash
@@ -72,6 +65,7 @@ capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
 ```
 
 `capsule import` 默认只做 dry-run；只有带 `--execute` 才会真正写入。
+只有在你想提前预览计划写入内容时，才需要单独跑 dry-run。
 
 ## 链接分享
 
@@ -89,7 +83,7 @@ https://<worker-host>/s/<share-id>#k=<base64url-key>
 
 分享前，胶囊会先用 AES-256-GCM 加密。服务端保存 ciphertext 和 manifest；解密 key 放在 URL fragment 里，正常浏览器请求不会把 fragment 发给服务端。
 
-打开链接后，浏览器页面会在本地解密并展示可读预览，同时给 agent 提供安装、dry-run 和导入命令。
+打开链接后，浏览器页面会在本地解密并展示可读预览，同时给 agent 提供安装、skill 和导入命令。
 
 如果会话包含图片，浏览器预览会在 preview 大小限制内展示图片缩略图。图片很多或很大的 session 仍然可以从完整加密胶囊导入。
 

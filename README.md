@@ -42,12 +42,12 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 Agents can optionally install the Agent Capsule skill from
 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md). The skill teaches the
 agent when to install the CLI, how to export or share a session, how to import
-with inspect and dry-run first, and when to ask before writing local Codex
-history.
+after inspection and explicit approval, and when to ask before writing local
+Codex history.
 
 Capsule files and links do not depend on the skill. They include agent-facing
 bootstrap instructions so a receiving agent can still install the CLI, inspect,
-dry-run, import, and verify the restored thread.
+import, and verify the restored thread.
 
 ## Quick start: file handoff
 
@@ -63,12 +63,6 @@ Inspect the capsule before importing:
 capsule inspect handoff-topic.capsule.zip
 ```
 
-Dry-run the import:
-
-```bash
-capsule import handoff-topic.capsule.zip --target codex --target-cwd .
-```
-
 Write the imported thread into your local Codex home:
 
 ```bash
@@ -82,6 +76,8 @@ capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
 ```
 
 `capsule import` is a dry-run unless `--execute` is provided.
+Use that dry-run mode only when you want to preview planned writes before an
+approved import.
 
 ## Link sharing
 
@@ -102,7 +98,7 @@ ciphertext and manifest; the decryption key lives in the URL fragment and is not
 sent to the server by normal browser requests.
 
 The browser page shows a locally decrypted preview and includes agent-friendly
-install, dry-run, and import commands.
+install, skill, and import commands.
 
 For sessions with images, the browser preview shows image thumbnails when they
 fit the preview size limit. Large image-heavy sessions still import from the
