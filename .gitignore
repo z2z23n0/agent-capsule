@@ -1,2 +1,11 @@
 .ml-cache/
 .mainline/local.toml
+.DS_Store
+.env
+.env.*
+wrangler.toml
+.wrangler/
+node_modules/
+dist/
+*.capsule.zip
+*.capsule/

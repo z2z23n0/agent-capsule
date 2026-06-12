@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build archives
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${DISPATCH_TAG}"
+            git rev-parse -q --verify "refs/tags/${version}" >/dev/null
+            git checkout "refs/tags/${version}"
+          fi
+
+          mkdir -p dist
+          targets=(
+            "darwin amd64"
+            "darwin arm64"
+            "linux amd64"
+            "linux arm64"
+            "windows amd64"
+          )
+
+          for target in "${targets[@]}"; do
+            read -r goos goarch <<<"${target}"
+            name="agent-capsule_${version}_${goos}_${goarch}"
+            out_dir="dist/${name}"
+            mkdir -p "${out_dir}"
+
+            binary="capsule"
+            if [ "${goos}" = "windows" ]; then
+              binary="capsule.exe"
+            fi
+
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o "${out_dir}/${binary}" \
+              ./cmd/capsule
+
+            cp README.md "${out_dir}/README.md"
+            if [ "${goos}" = "windows" ]; then
+              (cd dist && zip -qr "${name}.zip" "${name}")
+            else
+              (cd dist && tar -czf "${name}.tar.gz" "${name}")
+            fi
+            rm -rf "${out_dir}"
+          done
+
+          (cd dist && sha256sum * > checksums.txt)
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${DISPATCH_TAG}"
+          fi
+
+          if gh release view "${version}" >/dev/null 2>&1; then
+            gh release upload "${version}" dist/* --clobber
+          else
+            gh release create "${version}" dist/* --title "${version}" --generate-notes
+          fi
