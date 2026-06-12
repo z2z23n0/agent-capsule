@@ -1,0 +1,30 @@
+name = "agent-capsule"
+main = "src/index.js"
+compatibility_date = "2026-06-12"
+
+[[r2_buckets]]
+binding = "CAPSULE_BUCKET"
+bucket_name = "agent-capsule"
+
+[[durable_objects.bindings]]
+name = "BUDGET_GATE"
+class_name = "BudgetGate"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BudgetGate"]
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+MAX_BLOB_BYTES = "2097152"
+MAX_MANIFEST_BYTES = "1572864"
+MAX_PREVIEW_PAYLOAD_BYTES = "1048576"
+MAX_REQUEST_BYTES = "3735552"
+MAX_TTL_SECONDS = "86400"
+MAX_DOWNLOADS_PER_SHARE = "3"
+LIVE_BYTES_LIMIT = "4294967296"
+MONTHLY_GB_DAYS_LIMIT = "120"
+MONTHLY_PUT_LIMIT = "100000"
+MONTHLY_GET_LIMIT = "1000000"

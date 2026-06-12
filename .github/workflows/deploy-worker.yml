@@ -1,0 +1,72 @@
+name: Deploy Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/cloudflare-worker/**
+      - .github/workflows/deploy-worker.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-worker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy agent-capsule Worker
+    if: github.repository == 'z2z23n0/agent-capsule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Cloudflare secrets
+        id: cloudflare-secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Worker deploy because CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not configured."
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.cloudflare-secrets.outputs.present == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.cloudflare-secrets.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: deploy/cloudflare-worker/package-lock.json
+
+      - name: Install dependencies
+        if: steps.cloudflare-secrets.outputs.present == 'true'
+        working-directory: deploy/cloudflare-worker
+        run: npm ci
+
+      - name: Check syntax
+        if: steps.cloudflare-secrets.outputs.present == 'true'
+        working-directory: deploy/cloudflare-worker
+        run: npm run check
+
+      - name: Test
+        if: steps.cloudflare-secrets.outputs.present == 'true'
+        working-directory: deploy/cloudflare-worker
+        run: npm test
+
+      - name: Deploy Worker
+        if: steps.cloudflare-secrets.outputs.present == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: deploy/cloudflare-worker
+          command: deploy src/index.js --config wrangler.production.toml
