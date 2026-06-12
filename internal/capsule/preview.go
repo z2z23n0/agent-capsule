@@ -111,6 +111,9 @@ func buildPreviewTranscript(manifest Manifest, session []byte) PreviewTranscript
 			if text == "" {
 				continue
 			}
+			if previewHiddenMessage(text) {
+				continue
+			}
 			clipped, truncated := previewClip(text, maxPreviewText)
 			if !appendPreviewEntry(&transcript, PreviewEntry{
 				Kind:      "message",
@@ -238,6 +241,14 @@ func previewString(value any) string {
 		return strings.TrimSpace(text)
 	}
 	return ""
+}
+
+func previewHiddenMessage(text string) bool {
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "# AGENTS.md instructions for ") ||
+		strings.HasPrefix(text, "<codex_internal_context") ||
+		strings.HasPrefix(text, "<environment_context>") ||
+		strings.HasPrefix(text, "<INSTRUCTIONS>")
 }
 
 func previewClip(text string, max int) (string, bool) {

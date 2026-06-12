@@ -62,8 +62,13 @@ test("share page serves human preview shell and agent metadata", async () => {
   const page = await worker.fetch(new Request(created.share_url + "#k=test"), env);
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /This page is a readable preview/);
-  assert.match(html, /Restore in Codex/);
+  assert.match(html, /This is a readable preview/);
+  assert.match(html, /Restore full session in Codex/);
+  assert.match(html, /message-row/);
+  assert.match(html, /process-card/);
+  assert.match(html, /function renderMarkdown/);
+  assert.match(html, /function isInternalContextEntry/);
+  assert.doesNotMatch(html, /<details class="restore-panel" open>/);
   assert.match(html, /application\/agent-capsule\+json/);
   assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
 

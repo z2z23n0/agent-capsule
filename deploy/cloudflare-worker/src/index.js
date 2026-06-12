@@ -297,57 +297,63 @@ function sharePageHTML(request, manifest, id) {
 </head>
 <body>
   <script id="agent-capsule-metadata" type="application/agent-capsule+json">${scriptJSON(metadata)}</script>
-  <div class="page-shell">
-    <header class="topbar">
-      <div>
-        <div class="brand">Capsule</div>
-        <p class="tagline">Encrypted Codex session preview</p>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="header-title">
+        <span class="brand">Capsule</span>
+        <span id="header-session-title">${escapeHTML(title)}</span>
       </div>
-      <a class="docs-link" href="${escapeHTML(manifest.import.docs_url)}" rel="noreferrer">Docs</a>
+      <div class="header-meta">
+        <span id="expires-at">Encrypted link</span>
+        <a class="docs-link" href="${escapeHTML(manifest.import.docs_url)}" rel="noreferrer">Docs</a>
+      </div>
     </header>
 
-    <main class="layout">
-      <section class="conversation-panel" aria-labelledby="session-title">
-        <p class="eyebrow">Shared session</p>
+    <main class="thread-shell">
+      <section class="session-head" aria-labelledby="session-title">
+        <p class="eyebrow">Encrypted Codex session preview</p>
         <h1 id="session-title">${escapeHTML(title)}</h1>
-        <p class="preview-note">This page is a readable preview. To restore the full session, ask an agent to import this link into your own Codex native UI.</p>
+        <p class="preview-note">This is a readable preview, not the full native thread. Give this link to an agent to restore the complete session into your own Codex UI.</p>
         <div class="meta-row">
-          <span id="expires-at">Encrypted link</span>
           <span id="counts">Waiting for preview</span>
+          <span id="privacy-note">Decrypted locally with the URL key</span>
         </div>
-        <div id="status" class="status">Loading encrypted preview from this link.</div>
-        <div id="transcript" class="transcript" aria-live="polite"></div>
       </section>
 
-      <aside class="agent-panel" aria-labelledby="agent-title">
-        <p class="eyebrow">For agents</p>
-        <h2 id="agent-title">Restore in Codex</h2>
-        <p class="agent-copy">Give this URL to a coding agent. It can install the importer, dry-run the write, then import the complete session as a new Codex thread.</p>
-
-        <div class="command-block">
-          <div class="command-head">
-            <span>Install</span>
-            <button type="button" data-copy="install-command">Copy</button>
+      <details class="restore-panel">
+        <summary>
+          <span>Restore full session in Codex</span>
+          <small>Agent import commands</small>
+        </summary>
+        <div class="restore-grid">
+          <div class="command-block">
+            <div class="command-head">
+              <span>Install</span>
+              <button type="button" data-copy="install-command">Copy</button>
+            </div>
+            <pre id="install-command"></pre>
           </div>
-          <pre id="install-command"></pre>
-        </div>
 
-        <div class="command-block">
-          <div class="command-head">
-            <span>Dry run</span>
-            <button type="button" data-copy="dry-run-command">Copy</button>
+          <div class="command-block">
+            <div class="command-head">
+              <span>Dry run</span>
+              <button type="button" data-copy="dry-run-command">Copy</button>
+            </div>
+            <pre id="dry-run-command"></pre>
           </div>
-          <pre id="dry-run-command"></pre>
-        </div>
 
-        <div class="command-block emphasized">
-          <div class="command-head">
-            <span>Import</span>
-            <button type="button" data-copy="execute-command">Copy</button>
+          <div class="command-block emphasized">
+            <div class="command-head">
+              <span>Import</span>
+              <button type="button" data-copy="execute-command">Copy</button>
+            </div>
+            <pre id="execute-command"></pre>
           </div>
-          <pre id="execute-command"></pre>
         </div>
-      </aside>
+      </details>
+
+      <div id="status" class="status">Loading encrypted preview from this link.</div>
+      <section id="transcript" class="transcript" aria-live="polite"></section>
     </main>
   </div>
   <script>${sharePageJS()}</script>
@@ -359,16 +365,22 @@ function sharePageCSS() {
   return `
 :root {
   color-scheme: light;
-  --bg: #f7f7f4;
-  --panel: #ffffff;
-  --ink: #151614;
-  --muted: #62665f;
-  --line: #dedfd8;
-  --soft: #eceee8;
-  --accent: #2f6f68;
-  --accent-ink: #0f312d;
-  --code-bg: #101413;
-  --code-ink: #eef5ef;
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-soft: #f0efea;
+  --ink: #1f201d;
+  --muted: #6b6a62;
+  --line: #dedbd2;
+  --line-strong: #c9c4b8;
+  --user-bg: #ecefeb;
+  --assistant-bg: #ffffff;
+  --process-bg: #f8f7f3;
+  --accent: #315f57;
+  --accent-soft: #e7f0ed;
+  --warning: #855f22;
+  --error: #9a3329;
+  --code-bg: #171a18;
+  --code-ink: #eef3ef;
 }
 * { box-sizing: border-box; }
 body {
@@ -380,27 +392,50 @@ body {
   line-height: 1.5;
 }
 button, a { font: inherit; }
-.page-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 56px; }
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 34px; }
-.brand { font-weight: 750; font-size: 18px; letter-spacing: 0; }
-.tagline, .agent-copy, .preview-note { margin: 4px 0 0; color: var(--muted); }
+.app-shell { min-height: 100dvh; }
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 58px;
+  padding: 10px max(18px, calc((100vw - 1060px) / 2));
+  border-bottom: 1px solid var(--line);
+  background: rgba(246,245,241,.92);
+  backdrop-filter: blur(14px);
+}
+.header-title { display: flex; align-items: center; min-width: 0; gap: 10px; }
+.brand {
+  flex: 0 0 auto;
+  font-weight: 760;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+#header-session-title {
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .docs-link {
-  color: var(--accent-ink);
+  color: var(--accent);
   text-decoration: none;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 8px 13px;
-  background: rgba(255,255,255,.65);
+  padding: 5px 10px;
+  background: rgba(255,255,255,.7);
 }
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
-.conversation-panel, .agent-panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 18px 50px rgba(21,22,20,.06);
+.thread-shell {
+  width: min(960px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 34px 0 72px;
 }
-.conversation-panel { padding: 32px; min-width: 0; }
-.agent-panel { padding: 22px; position: sticky; top: 20px; }
+.session-head { margin-bottom: 18px; }
 .eyebrow {
   margin: 0 0 10px;
   color: var(--accent);
@@ -408,68 +443,196 @@ button, a { font: inherit; }
   font-weight: 720;
   text-transform: uppercase;
 }
-h1 { margin: 0; font-size: clamp(30px, 5vw, 58px); line-height: 1.05; letter-spacing: 0; max-width: 920px; overflow-wrap: anywhere; }
-h2 { margin: 0; font-size: 22px; line-height: 1.2; letter-spacing: 0; }
-.preview-note { max-width: 68ch; margin-top: 18px; font-size: 16px; }
+h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.15; letter-spacing: 0; overflow-wrap: anywhere; }
+.preview-note { max-width: 72ch; margin: 12px 0 0; color: var(--muted); font-size: 15px; }
 .meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .meta-row span {
   border: 1px solid var(--line);
-  background: var(--soft);
+  background: var(--surface-soft);
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 5px 10px;
   color: var(--muted);
   font-size: 13px;
 }
-.status {
-  margin-top: 18px;
-  border-left: 3px solid var(--accent);
-  background: #edf5f2;
-  color: var(--accent-ink);
-  padding: 12px 14px;
-  border-radius: 6px;
+.restore-panel {
+  margin: 22px 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 14px 42px rgba(31,32,29,.05);
+  overflow: hidden;
 }
-.transcript { margin-top: 26px; display: grid; gap: 16px; }
-.entry {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
+.restore-panel summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  padding: 14px 16px;
+  font-weight: 680;
+}
+.restore-panel summary small { color: var(--muted); font-weight: 500; }
+.restore-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+.status {
+  margin: 18px 0 20px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 10px 13px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.status[data-kind="warn"] { border-left-color: var(--warning); background: #f8f1e4; color: var(--warning); }
+.status[data-kind="error"] { border-left-color: var(--error); background: #f8e9e6; color: var(--error); }
+.transcript { display: grid; gap: 14px; }
+.message-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
-.role, .tool-label { color: var(--muted); font-size: 12px; font-weight: 720; text-transform: uppercase; margin-bottom: 8px; }
-.message-text, .tool-input, .command-block pre {
+.message-row.user { justify-items: end; }
+.message-row.assistant { justify-items: start; }
+.bubble {
+  width: fit-content;
+  max-width: min(760px, 86%);
+  min-width: 0;
+}
+.message-row.user .bubble {
+  background: var(--user-bg);
+  border: 1px solid var(--line);
+  border-radius: 18px 18px 5px 18px;
+  padding: 12px 14px;
+}
+.message-row.assistant .bubble {
+  background: var(--assistant-bg);
+  border: 1px solid var(--line);
+  border-radius: 18px 18px 18px 5px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 32px rgba(31,32,29,.04);
+}
+.role {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+.markdown {
+  font-size: 15px;
+  color: var(--ink);
+}
+.markdown > *:first-child { margin-top: 0; }
+.markdown > *:last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 10px; }
+.markdown h1, .markdown h2, .markdown h3 {
+  margin: 14px 0 8px;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+.markdown ul, .markdown ol { margin: 8px 0 10px; padding-left: 22px; }
+.markdown li { margin: 4px 0; }
+.markdown blockquote {
+  margin: 10px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--muted);
+}
+.markdown a { color: #315f86; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.markdown code, .tool-input, .command-block pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+.markdown code {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #f4f3ee;
+  padding: 1px 4px;
+  font-size: .92em;
+}
+.markdown pre {
+  margin: 10px 0;
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border-radius: 8px;
+}
+.markdown pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.tool-input, .command-block pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
-.message-text {
-  font-family: inherit;
-  font-size: 16px;
-  color: var(--ink);
+.process-row {
+  display: grid;
+  justify-items: start;
 }
-details.tool {
-  background: #fafaf8;
+details.process-card {
+  width: min(720px, 84%);
+  background: var(--process-bg);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  color: var(--muted);
+  overflow: hidden;
 }
-details.tool summary { cursor: pointer; color: var(--ink); font-weight: 650; }
-.tool-input { margin-top: 12px; color: var(--muted); font-size: 13px; }
-.agent-panel .eyebrow { margin-bottom: 8px; }
-.agent-copy { font-size: 14px; margin: 10px 0 18px; }
+details.process-card summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  list-style: none;
+  font-size: 13px;
+}
+details.process-card summary::-webkit-details-marker { display: none; }
+.chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+details.process-card[open] .chevron { transform: rotate(45deg); }
+.process-title {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.process-meta { flex: 0 0 auto; color: var(--muted); }
+.tool-input {
+  border-top: 1px solid var(--line);
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  background: #fffdfa;
+}
 .command-block {
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
-  margin-top: 12px;
   background: var(--code-bg);
+  min-width: 0;
 }
-.command-block.emphasized { border-color: rgba(47,111,104,.55); }
+.command-block.emphasized { border-color: rgba(49,95,87,.55); }
 .command-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  background: #f0f2ed;
+  background: #f2f1ec;
   color: var(--ink);
   padding: 8px 10px;
   font-size: 13px;
@@ -478,7 +641,7 @@ details.tool summary { cursor: pointer; color: var(--ink); font-weight: 650; }
 .command-head button {
   border: 1px solid var(--line);
   background: white;
-  color: var(--accent-ink);
+  color: var(--accent);
   border-radius: 999px;
   padding: 4px 9px;
   cursor: pointer;
@@ -488,11 +651,13 @@ details.tool summary { cursor: pointer; color: var(--ink); font-weight: 650; }
   padding: 13px;
   font-size: 12px;
 }
-@media (max-width: 880px) {
-  .page-shell { width: min(100% - 20px, 720px); padding-top: 18px; }
-  .layout { grid-template-columns: 1fr; }
-  .agent-panel { position: static; order: -1; }
-  .conversation-panel { padding: 22px; }
+@media (max-width: 760px) {
+  .app-header { align-items: flex-start; flex-direction: column; padding: 10px; }
+  .header-meta { width: 100%; justify-content: space-between; }
+  .thread-shell { width: min(100% - 20px, 680px); padding-top: 22px; }
+  .restore-grid { grid-template-columns: 1fr; }
+  .bubble, details.process-card { max-width: 100%; width: 100%; }
+  .message-row.user .bubble, .message-row.assistant .bubble { border-radius: 14px; }
 }
 `;
 }
@@ -501,6 +666,7 @@ function sharePageJS() {
   return `
 const metadata = JSON.parse(document.getElementById("agent-capsule-metadata").textContent);
 const $ = (id) => document.getElementById(id);
+const fenceMarker = String.fromCharCode(96, 96, 96);
 
 function fullShareURL() {
   return location.origin + location.pathname + location.search + location.hash;
@@ -527,6 +693,7 @@ function renderManifestInfo(manifest) {
   if (manifest.thread && manifest.thread.title) {
     document.title = manifest.thread.title + " - Capsule";
     $("session-title").textContent = manifest.thread.title;
+    $("header-session-title").textContent = manifest.thread.title;
   }
   $("expires-at").textContent = manifest.expires_at ? "Expires " + new Date(manifest.expires_at).toLocaleString() : "Encrypted link";
 }
@@ -556,7 +723,10 @@ async function decryptPreview(preview, keyText) {
 }
 
 function renderTranscript(transcript) {
-  $("counts").textContent = transcript.message_count + " messages - " + transcript.tool_count + " tool summaries";
+  const entries = (transcript.entries || []).filter((entry) => !isInternalContextEntry(entry));
+  const messageCount = entries.filter((entry) => entry.kind === "message").length;
+  const toolCount = entries.filter((entry) => entry.kind === "tool").length;
+  $("counts").textContent = messageCount + " messages - " + toolCount + " process steps";
   const root = $("transcript");
   root.replaceChildren();
   if (transcript.truncated) {
@@ -565,35 +735,226 @@ function renderTranscript(transcript) {
     note.textContent = "This preview is truncated. Import the Capsule to continue in the complete Codex thread.";
     root.appendChild(note);
   }
-  for (const entry of transcript.entries || []) {
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "status";
+    empty.textContent = "No public preview entries are available for this session. An agent can still restore the full Capsule in Codex.";
+    root.appendChild(empty);
+    return;
+  }
+  for (const entry of entries) {
     root.appendChild(entry.kind === "tool" ? toolNode(entry) : messageNode(entry));
   }
 }
 
+function isInternalContextEntry(entry) {
+  if (!entry || entry.kind !== "message") return false;
+  const text = String(entry.text || "").trim();
+  return text.startsWith("# AGENTS.md instructions for ") ||
+    text.startsWith("<codex_internal_context") ||
+    text.startsWith("<environment_context>") ||
+    text.startsWith("<INSTRUCTIONS>");
+}
+
 function messageNode(entry) {
   const article = document.createElement("article");
-  article.className = "entry message " + (entry.role || "");
+  article.className = "message-row " + (entry.role || "");
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
   const role = document.createElement("div");
   role.className = "role";
-  role.textContent = entry.role || "message";
-  const text = document.createElement("div");
-  text.className = "message-text";
-  text.textContent = entry.text || "";
-  article.append(role, text);
+  role.textContent = roleLabel(entry.role);
+  bubble.append(role, renderMarkdown(entry.text || ""));
+  article.appendChild(bubble);
   return article;
 }
 
+function roleLabel(role) {
+  if (role === "user") return "You";
+  if (role === "assistant") return "Codex";
+  return role || "Message";
+}
+
 function toolNode(entry) {
+  const row = document.createElement("div");
+  row.className = "process-row";
   const details = document.createElement("details");
-  details.className = "entry tool";
+  details.className = "process-card";
   const summary = document.createElement("summary");
-  const output = entry.output_bytes ? " - " + entry.output_bytes + " bytes output" : "";
-  summary.textContent = (entry.tool || "tool") + " - " + (entry.status || "called") + output;
+  const chevron = document.createElement("span");
+  chevron.className = "chevron";
+  const title = document.createElement("span");
+  title.className = "process-title";
+  title.textContent = "Process - " + (entry.tool || "tool");
+  const meta = document.createElement("span");
+  meta.className = "process-meta";
+  meta.textContent = [entry.status || "called", formatBytes(entry.output_bytes)].filter(Boolean).join(" - ");
+  summary.append(chevron, title, meta);
   const input = document.createElement("pre");
   input.className = "tool-input";
   input.textContent = entry.input_preview || "No input preview";
   details.append(summary, input);
-  return details;
+  row.appendChild(details);
+  return row;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return "";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function renderMarkdown(text) {
+  const root = document.createElement("div");
+  root.className = "markdown";
+  const lines = String(text || "").replace(/\\r\\n/g, "\\n").split("\\n");
+  let i = 0;
+  while (i < lines.length) {
+    if (isBlank(lines[i])) {
+      i += 1;
+      continue;
+    }
+    if (lines[i].startsWith(fenceMarker)) {
+      const codeLines = [];
+      i += 1;
+      while (i < lines.length && !lines[i].startsWith(fenceMarker)) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      if (i < lines.length) i += 1;
+      root.appendChild(codeBlock(codeLines.join("\\n")));
+      continue;
+    }
+    const heading = lines[i].match(/^(#{1,3})\\s+(.+)$/);
+    if (heading) {
+      const node = document.createElement("h" + heading[1].length);
+      appendInline(node, heading[2]);
+      root.appendChild(node);
+      i += 1;
+      continue;
+    }
+    if (/^>\\s?/.test(lines[i])) {
+      const quoteLines = [];
+      while (i < lines.length && /^>\\s?/.test(lines[i])) {
+        quoteLines.push(lines[i].replace(/^>\\s?/, ""));
+        i += 1;
+      }
+      const quote = document.createElement("blockquote");
+      appendInlineWithBreaks(quote, quoteLines.join("\\n"));
+      root.appendChild(quote);
+      continue;
+    }
+    const list = listMatch(lines[i]);
+    if (list) {
+      const ordered = Boolean(list.ordered);
+      const node = document.createElement(ordered ? "ol" : "ul");
+      while (i < lines.length) {
+        const item = listMatch(lines[i]);
+        if (!item || Boolean(item.ordered) !== ordered) break;
+        const li = document.createElement("li");
+        appendInline(li, item.text);
+        node.appendChild(li);
+        i += 1;
+      }
+      root.appendChild(node);
+      continue;
+    }
+    const paragraph = [];
+    while (i < lines.length && !isBlank(lines[i]) && !isSpecialMarkdownStart(lines[i])) {
+      paragraph.push(lines[i]);
+      i += 1;
+    }
+    const p = document.createElement("p");
+    appendInlineWithBreaks(p, paragraph.join("\\n"));
+    root.appendChild(p);
+  }
+  if (!root.childNodes.length) {
+    const p = document.createElement("p");
+    p.textContent = "";
+    root.appendChild(p);
+  }
+  return root;
+}
+
+function codeBlock(text) {
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = text;
+  pre.appendChild(code);
+  return pre;
+}
+
+function isBlank(line) {
+  return /^\\s*$/.test(line);
+}
+
+function isSpecialMarkdownStart(line) {
+  return line.startsWith(fenceMarker) ||
+    /^(#{1,3})\\s+/.test(line) ||
+    /^>\\s?/.test(line) ||
+    Boolean(listMatch(line));
+}
+
+function listMatch(line) {
+  const unordered = line.match(/^\\s*[-*+]\\s+(.+)$/);
+  if (unordered) return { ordered: false, text: unordered[1] };
+  const ordered = line.match(/^\\s*\\d+[.)]\\s+(.+)$/);
+  if (ordered) return { ordered: true, text: ordered[1] };
+  return null;
+}
+
+function appendInlineWithBreaks(parent, text) {
+  const parts = String(text || "").split("\\n");
+  for (let i = 0; i < parts.length; i += 1) {
+    if (i > 0) parent.appendChild(document.createElement("br"));
+    appendInline(parent, parts[i]);
+  }
+}
+
+function appendInline(parent, text) {
+  const pattern = new RegExp("(\\\\x60[^\\\\x60]+\\\\x60)|(\\\\*\\\\*[^*]+\\\\*\\\\*)|(__[^_]+__)|(\\\\[[^\\\\]]+\\\\]\\\\(https?://[^\\\\s)]+\\\\))|(\\\\*[^*\\\\n]+\\\\*)|(_[^_\\\\n]+_)", "g");
+  const source = String(text || "");
+  let index = 0;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    if (match.index > index) parent.appendChild(document.createTextNode(source.slice(index, match.index)));
+    appendInlineToken(parent, match[0]);
+    index = pattern.lastIndex;
+  }
+  if (index < source.length) parent.appendChild(document.createTextNode(source.slice(index)));
+}
+
+function appendInlineToken(parent, token) {
+  if (token.charCodeAt(0) === 96 && token.charCodeAt(token.length - 1) === 96) {
+    const code = document.createElement("code");
+    code.textContent = token.slice(1, -1);
+    parent.appendChild(code);
+    return;
+  }
+  const link = token.match(/^\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)$/);
+  if (link) {
+    const a = document.createElement("a");
+    a.href = link[2];
+    a.rel = "noreferrer";
+    a.textContent = link[1];
+    parent.appendChild(a);
+    return;
+  }
+  if ((token.startsWith("**") && token.endsWith("**")) || (token.startsWith("__") && token.endsWith("__"))) {
+    const strong = document.createElement("strong");
+    strong.textContent = token.slice(2, -2);
+    parent.appendChild(strong);
+    return;
+  }
+  if ((token.startsWith("*") && token.endsWith("*")) || (token.startsWith("_") && token.endsWith("_"))) {
+    const em = document.createElement("em");
+    em.textContent = token.slice(1, -1);
+    parent.appendChild(em);
+    return;
+  }
+  parent.appendChild(document.createTextNode(token));
 }
 
 document.addEventListener("click", async (event) => {

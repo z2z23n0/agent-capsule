@@ -250,6 +250,28 @@ func TestPreviewTranscriptIncludesMessagesAndToolSummaries(t *testing.T) {
 	}
 }
 
+func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	session := strings.Join([]string{
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\nsecret project instructions"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"please inspect **this**"}]}}`,
+	}, "\n") + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session))
+	if transcript.MessageCount != 1 {
+		t.Fatalf("message_count = %d", transcript.MessageCount)
+	}
+	if len(transcript.Entries) != 1 {
+		t.Fatalf("entries = %d", len(transcript.Entries))
+	}
+	if strings.Contains(transcript.Entries[0].Text, "AGENTS.md") {
+		t.Fatal("internal AGENTS.md context leaked into preview")
+	}
+}
+
 func TestShareWorkerManifestIncludesPreviewAndAgentCommands(t *testing.T) {
 	sourceHome := createFakeCodexHome(t)
 	var captured LinkManifest
