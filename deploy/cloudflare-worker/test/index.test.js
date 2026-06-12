@@ -21,10 +21,59 @@ test("anonymous upload/download happy path", async () => {
   const manifestJSON = await manifest.json();
   assert.equal(manifestJSON.schema, "agent-capsule.link.v1");
   assert.match(manifestJSON.bundle.url, /\/v1\/shares\/.+\/blob$/);
+  assert.equal(manifestJSON.import.install_command, "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main");
 
   const downloaded = await worker.fetch(new Request(manifestJSON.bundle.url), env);
   assert.equal(downloaded.status, 200);
   assert.deepEqual(new Uint8Array(await downloaded.arrayBuffer()), new Uint8Array([1, 2, 3]));
+});
+
+test("upload preserves encrypted preview metadata", async () => {
+  const env = fakeEnv();
+  const input = manifest();
+  input.preview = {
+    schema: "agent-capsule.preview.v1",
+    crypto: { alg: "AES-256-GCM", nonce: "nonce", key_ref: "url-fragment:k" },
+    payload: "payload"
+  };
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(input));
+  form.set("blob", new Blob(["hello"]), "blob.enc");
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: form
+  }), env);
+  assert.equal(upload.status, 201);
+  const created = await upload.json();
+  const output = await (await worker.fetch(new Request(created.manifest_url), env)).json();
+  assert.equal(output.preview.schema, "agent-capsule.preview.v1");
+  assert.equal(output.preview.payload, "payload");
+});
+
+test("share page serves human preview shell and agent metadata", async () => {
+  const env = fakeEnv();
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  assert.equal(upload.status, 201);
+  const created = await upload.json();
+
+  const page = await worker.fetch(new Request(created.share_url + "#k=test"), env);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /This page is a readable preview/);
+  assert.match(html, /Restore in Codex/);
+  assert.match(html, /application\/agent-capsule\+json/);
+  assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
+
+  const jsonResponse = await worker.fetch(new Request(created.share_url, {
+    headers: { accept: "application/json" }
+  }), env);
+  assert.equal(jsonResponse.status, 200);
+  const manifestJSON = await jsonResponse.json();
+  assert.equal(manifestJSON.import.dry_run_command, "capsule import \"<this-url>\" --target codex --target-cwd .");
+  assert.equal(manifestJSON.import.execute_command, "capsule import \"<this-url>\" --target codex --target-cwd . --execute");
 });
 
 test("max blob size blocks upload", async () => {

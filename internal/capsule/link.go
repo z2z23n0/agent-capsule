@@ -43,6 +43,7 @@ type LinkManifest struct {
 	Bundle    LinkBundle      `json:"bundle"`
 	Crypto    LinkCrypto      `json:"crypto"`
 	Import    LinkImport      `json:"import"`
+	Preview   *LinkPreview    `json:"preview,omitempty"`
 	Service   LinkServiceInfo `json:"service,omitempty"`
 }
 
@@ -64,8 +65,18 @@ type LinkCrypto struct {
 }
 
 type LinkImport struct {
-	Tool    string `json:"tool"`
-	Command string `json:"command"`
+	Tool           string `json:"tool"`
+	Command        string `json:"command"`
+	InstallCommand string `json:"install_command,omitempty"`
+	DryRunCommand  string `json:"dry_run_command,omitempty"`
+	ExecuteCommand string `json:"execute_command,omitempty"`
+	DocsURL        string `json:"docs_url,omitempty"`
+}
+
+type LinkPreview struct {
+	Schema  string     `json:"schema"`
+	Crypto  LinkCrypto `json:"crypto"`
+	Payload string     `json:"payload"`
 }
 
 type LinkServiceInfo struct {
@@ -193,6 +204,11 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 	}
 	shareID := uuid.NewString()
 	manifest := buildLinkManifest(exported, enc, service)
+	preview, err := buildEncryptedPreview(tempZip, enc.Key)
+	if err != nil {
+		return nil, err
+	}
+	manifest.Preview = preview
 
 	var shareURL, manifestURL, expiresAt string
 	var warnings []string
@@ -315,8 +331,12 @@ func buildLinkManifest(exported *ExportResult, enc encryptedCapsule, service str
 			KeyRef: "url-fragment:k",
 		},
 		Import: LinkImport{
-			Tool:    "capsule",
-			Command: "capsule import <this-url> --target codex --target-cwd . --execute",
+			Tool:           "capsule",
+			Command:        "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
+			InstallCommand: InstallCmd,
+			DryRunCommand:  "capsule import \"<this-url>\" --target codex --target-cwd .",
+			ExecuteCommand: "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
+			DocsURL:        DefaultRepo,
 		},
 		Service: LinkServiceInfo{Type: service},
 	}

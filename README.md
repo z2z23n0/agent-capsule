@@ -32,6 +32,11 @@ ciphertext, and prints a link. The decryption key lives in the URL fragment:
 https://<worker-host>/s/<share-id>#k=<base64url-key>
 ```
 
+Opening the link in a browser shows an encrypted, locally decrypted session
+preview for humans. The same page also exposes install, dry-run, and import
+commands so an agent can restore the complete session into the receiver's
+native Codex UI as a new thread.
+
 If link sharing fails because the Worker is unavailable, quota rejects the
 upload, or the network fails, the command writes a local `.capsule.zip` and
 returns `status: fallback_zip`.

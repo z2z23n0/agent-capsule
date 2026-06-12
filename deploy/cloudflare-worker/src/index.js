@@ -1,5 +1,9 @@
 const LINK_SCHEMA = "agent-capsule.link.v1";
 const GB = 1024 * 1024 * 1024;
+const DEFAULT_INSTALL_COMMAND = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main";
+const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
+const DEFAULT_DRY_RUN_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd .";
+const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";
 
 export class BudgetGate {
   constructor(state, env) {
@@ -228,7 +232,7 @@ async function createShare(request, env, origin) {
 async function getManifest(env, id) {
   const result = await gateJSON(env, "/share", { id });
   if (!result.ok) return json({ ok: false, error: result.error }, result.status || 404);
-  return json(result.share.manifest);
+  return json(manifestForResponse(result.share.manifest));
 }
 
 async function getBlob(env, id) {
@@ -244,12 +248,394 @@ async function getBlob(env, id) {
 async function sharePage(request, env, id) {
   const result = await gateJSON(env, "/share", { id });
   if (!result.ok) return html("Agent Capsule link unavailable", 404);
-  const manifest = result.share.manifest;
+  const manifest = manifestForResponse(result.share.manifest);
   const accept = request.headers.get("accept") || "";
   if (accept.includes("application/json")) return json(manifest);
-  const title = escapeHTML(manifest.thread && manifest.thread.title ? manifest.thread.title : "Agent Capsule");
-  const command = "capsule import \"" + new URL(request.url).origin + "/s/" + id + "#k=...\" --target codex --target-cwd . --execute";
-  return html("<h1>" + title + "</h1><p>This Agent Capsule link needs the decryption key from the URL fragment.</p><pre>" + escapeHTML(command) + "</pre>");
+  return htmlDocument(sharePageHTML(request, manifest, id));
+}
+
+function manifestForResponse(manifest) {
+  const out = JSON.parse(JSON.stringify(manifest || {}));
+  out.import = importInfo(out.import);
+  return out;
+}
+
+function importInfo(value = {}) {
+  return {
+    tool: value.tool || "capsule",
+    command: quoteThisURL(value.command || DEFAULT_EXECUTE_COMMAND),
+    install_command: value.install_command || DEFAULT_INSTALL_COMMAND,
+    dry_run_command: quoteThisURL(value.dry_run_command || DEFAULT_DRY_RUN_COMMAND),
+    execute_command: quoteThisURL(value.execute_command || value.command || DEFAULT_EXECUTE_COMMAND),
+    docs_url: value.docs_url || DEFAULT_DOCS_URL
+  };
+}
+
+function quoteThisURL(command) {
+  const text = String(command || "");
+  if (text.includes("\"<this-url>\"")) return text;
+  return text.replaceAll("<this-url>", "\"<this-url>\"");
+}
+
+function sharePageHTML(request, manifest, id) {
+  const url = new URL(request.url);
+  const title = manifest.thread && manifest.thread.title ? manifest.thread.title : "Agent Capsule";
+  const metadata = {
+    schema: "agent-capsule.share-page.v1",
+    share_url: url.origin + "/s/" + id,
+    manifest_url: url.origin + "/v1/shares/" + id,
+    key_ref: "url-fragment:k",
+    import: manifest.import
+  };
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHTML(title)} - Capsule</title>
+  <style>${sharePageCSS()}</style>
+</head>
+<body>
+  <script id="agent-capsule-metadata" type="application/agent-capsule+json">${scriptJSON(metadata)}</script>
+  <div class="page-shell">
+    <header class="topbar">
+      <div>
+        <div class="brand">Capsule</div>
+        <p class="tagline">Encrypted Codex session preview</p>
+      </div>
+      <a class="docs-link" href="${escapeHTML(manifest.import.docs_url)}" rel="noreferrer">Docs</a>
+    </header>
+
+    <main class="layout">
+      <section class="conversation-panel" aria-labelledby="session-title">
+        <p class="eyebrow">Shared session</p>
+        <h1 id="session-title">${escapeHTML(title)}</h1>
+        <p class="preview-note">This page is a readable preview. To restore the full session, ask an agent to import this link into your own Codex native UI.</p>
+        <div class="meta-row">
+          <span id="expires-at">Encrypted link</span>
+          <span id="counts">Waiting for preview</span>
+        </div>
+        <div id="status" class="status">Loading encrypted preview from this link.</div>
+        <div id="transcript" class="transcript" aria-live="polite"></div>
+      </section>
+
+      <aside class="agent-panel" aria-labelledby="agent-title">
+        <p class="eyebrow">For agents</p>
+        <h2 id="agent-title">Restore in Codex</h2>
+        <p class="agent-copy">Give this URL to a coding agent. It can install the importer, dry-run the write, then import the complete session as a new Codex thread.</p>
+
+        <div class="command-block">
+          <div class="command-head">
+            <span>Install</span>
+            <button type="button" data-copy="install-command">Copy</button>
+          </div>
+          <pre id="install-command"></pre>
+        </div>
+
+        <div class="command-block">
+          <div class="command-head">
+            <span>Dry run</span>
+            <button type="button" data-copy="dry-run-command">Copy</button>
+          </div>
+          <pre id="dry-run-command"></pre>
+        </div>
+
+        <div class="command-block emphasized">
+          <div class="command-head">
+            <span>Import</span>
+            <button type="button" data-copy="execute-command">Copy</button>
+          </div>
+          <pre id="execute-command"></pre>
+        </div>
+      </aside>
+    </main>
+  </div>
+  <script>${sharePageJS()}</script>
+</body>
+</html>`;
+}
+
+function sharePageCSS() {
+  return `
+:root {
+  color-scheme: light;
+  --bg: #f7f7f4;
+  --panel: #ffffff;
+  --ink: #151614;
+  --muted: #62665f;
+  --line: #dedfd8;
+  --soft: #eceee8;
+  --accent: #2f6f68;
+  --accent-ink: #0f312d;
+  --code-bg: #101413;
+  --code-ink: #eef5ef;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+button, a { font: inherit; }
+.page-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 56px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 34px; }
+.brand { font-weight: 750; font-size: 18px; letter-spacing: 0; }
+.tagline, .agent-copy, .preview-note { margin: 4px 0 0; color: var(--muted); }
+.docs-link {
+  color: var(--accent-ink);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 13px;
+  background: rgba(255,255,255,.65);
+}
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+.conversation-panel, .agent-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgba(21,22,20,.06);
+}
+.conversation-panel { padding: 32px; min-width: 0; }
+.agent-panel { padding: 22px; position: sticky; top: 20px; }
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+h1 { margin: 0; font-size: clamp(30px, 5vw, 58px); line-height: 1.05; letter-spacing: 0; max-width: 920px; overflow-wrap: anywhere; }
+h2 { margin: 0; font-size: 22px; line-height: 1.2; letter-spacing: 0; }
+.preview-note { max-width: 68ch; margin-top: 18px; font-size: 16px; }
+.meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.meta-row span {
+  border: 1px solid var(--line);
+  background: var(--soft);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.status {
+  margin-top: 18px;
+  border-left: 3px solid var(--accent);
+  background: #edf5f2;
+  color: var(--accent-ink);
+  padding: 12px 14px;
+  border-radius: 6px;
+}
+.transcript { margin-top: 26px; display: grid; gap: 16px; }
+.entry {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  min-width: 0;
+}
+.role, .tool-label { color: var(--muted); font-size: 12px; font-weight: 720; text-transform: uppercase; margin-bottom: 8px; }
+.message-text, .tool-input, .command-block pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+.message-text {
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--ink);
+}
+details.tool {
+  background: #fafaf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+details.tool summary { cursor: pointer; color: var(--ink); font-weight: 650; }
+.tool-input { margin-top: 12px; color: var(--muted); font-size: 13px; }
+.agent-panel .eyebrow { margin-bottom: 8px; }
+.agent-copy { font-size: 14px; margin: 10px 0 18px; }
+.command-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 12px;
+  background: var(--code-bg);
+}
+.command-block.emphasized { border-color: rgba(47,111,104,.55); }
+.command-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #f0f2ed;
+  color: var(--ink);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 680;
+}
+.command-head button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--accent-ink);
+  border-radius: 999px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.command-block pre {
+  color: var(--code-ink);
+  padding: 13px;
+  font-size: 12px;
+}
+@media (max-width: 880px) {
+  .page-shell { width: min(100% - 20px, 720px); padding-top: 18px; }
+  .layout { grid-template-columns: 1fr; }
+  .agent-panel { position: static; order: -1; }
+  .conversation-panel { padding: 22px; }
+}
+`;
+}
+
+function sharePageJS() {
+  return `
+const metadata = JSON.parse(document.getElementById("agent-capsule-metadata").textContent);
+const $ = (id) => document.getElementById(id);
+
+function fullShareURL() {
+  return location.origin + location.pathname + location.search + location.hash;
+}
+
+function commandText(template) {
+  const url = location.hash ? fullShareURL() : metadata.share_url + "#k=...";
+  return String(template || "").replaceAll("<this-url>", url);
+}
+
+function setStatus(text, kind = "info") {
+  const node = $("status");
+  node.textContent = text;
+  node.dataset.kind = kind;
+}
+
+function renderCommands(importInfo) {
+  $("install-command").textContent = importInfo.install_command || metadata.import.install_command;
+  $("dry-run-command").textContent = commandText(importInfo.dry_run_command || metadata.import.dry_run_command);
+  $("execute-command").textContent = commandText(importInfo.execute_command || importInfo.command || metadata.import.execute_command);
+}
+
+function renderManifestInfo(manifest) {
+  if (manifest.thread && manifest.thread.title) {
+    document.title = manifest.thread.title + " - Capsule";
+    $("session-title").textContent = manifest.thread.title;
+  }
+  $("expires-at").textContent = manifest.expires_at ? "Expires " + new Date(manifest.expires_at).toLocaleString() : "Encrypted link";
+}
+
+function fragmentKey() {
+  const value = new URLSearchParams(location.hash.slice(1)).get("k");
+  return value || "";
+}
+
+function base64urlToBytes(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - base64.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function decryptPreview(preview, keyText) {
+  if (!crypto.subtle) throw new Error("WebCrypto is unavailable in this browser");
+  const keyBytes = base64urlToBytes(keyText);
+  const nonce = base64urlToBytes(preview.crypto.nonce);
+  const ciphertext = base64urlToBytes(preview.payload);
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+function renderTranscript(transcript) {
+  $("counts").textContent = transcript.message_count + " messages - " + transcript.tool_count + " tool summaries";
+  const root = $("transcript");
+  root.replaceChildren();
+  if (transcript.truncated) {
+    const note = document.createElement("div");
+    note.className = "status";
+    note.textContent = "This preview is truncated. Import the Capsule to continue in the complete Codex thread.";
+    root.appendChild(note);
+  }
+  for (const entry of transcript.entries || []) {
+    root.appendChild(entry.kind === "tool" ? toolNode(entry) : messageNode(entry));
+  }
+}
+
+function messageNode(entry) {
+  const article = document.createElement("article");
+  article.className = "entry message " + (entry.role || "");
+  const role = document.createElement("div");
+  role.className = "role";
+  role.textContent = entry.role || "message";
+  const text = document.createElement("div");
+  text.className = "message-text";
+  text.textContent = entry.text || "";
+  article.append(role, text);
+  return article;
+}
+
+function toolNode(entry) {
+  const details = document.createElement("details");
+  details.className = "entry tool";
+  const summary = document.createElement("summary");
+  const output = entry.output_bytes ? " - " + entry.output_bytes + " bytes output" : "";
+  summary.textContent = (entry.tool || "tool") + " - " + (entry.status || "called") + output;
+  const input = document.createElement("pre");
+  input.className = "tool-input";
+  input.textContent = entry.input_preview || "No input preview";
+  details.append(summary, input);
+  return details;
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy]");
+  if (!button) return;
+  const node = $(button.dataset.copy);
+  if (!node) return;
+  await navigator.clipboard.writeText(node.textContent);
+  const old = button.textContent;
+  button.textContent = "Copied";
+  setTimeout(() => { button.textContent = old; }, 1200);
+});
+
+async function boot() {
+  try {
+    const response = await fetch(location.pathname, { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("Link unavailable: " + response.status);
+    const manifest = await response.json();
+    renderManifestInfo(manifest);
+    renderCommands(manifest.import || metadata.import);
+    if (!manifest.preview) {
+      $("counts").textContent = "Legacy link";
+      setStatus("This older Capsule link has no browser preview. An agent can still import the full session into Codex.", "warn");
+      return;
+    }
+    const key = fragmentKey();
+    if (!key) {
+      $("counts").textContent = "Missing key";
+      setStatus("This link is missing the #k decryption key. Use the full URL that was produced by capsule share.", "warn");
+      return;
+    }
+    const transcript = await decryptPreview(manifest.preview, key);
+    renderTranscript(transcript);
+    setStatus("Preview decrypted locally in this browser. The complete session stays in the encrypted Capsule until an agent imports it.");
+  } catch (error) {
+    $("counts").textContent = "Preview unavailable";
+    setStatus(error && error.message ? error.message : String(error), "error");
+  }
+}
+
+boot();
+`;
 }
 
 async function gateJSON(env, path, body) {
@@ -298,6 +684,13 @@ function html(value, status = 200) {
   }));
 }
 
+function htmlDocument(value, status = 200) {
+  return cors(new Response(value, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8" }
+  }));
+}
+
 function cors(response) {
   response.headers.set("access-control-allow-origin", "*");
   response.headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
@@ -329,5 +722,13 @@ function escapeHTML(value) {
     ">": "&gt;",
     "\"": "&quot;",
     "'": "&#39;"
+  })[ch]);
+}
+
+function scriptJSON(value) {
+  return JSON.stringify(value).replace(/[<>&]/g, (ch) => ({
+    "<": "\\u003c",
+    ">": "\\u003e",
+    "&": "\\u0026"
   })[ch]);
 }

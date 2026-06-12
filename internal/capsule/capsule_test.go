@@ -2,7 +2,10 @@ package capsule
 
 import (
 	"archive/zip"
+	"crypto/aes"
+	"crypto/cipher"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -208,6 +211,96 @@ func TestSecretScanBlocksExport(t *testing.T) {
 	}
 	if _, err := Export(ExportOptions{Home: home, Thread: testThreadID, Out: filepath.Join(t.TempDir(), "allowed.capsule.zip"), UnsafeIncludeSecrets: true}); err != nil {
 		t.Fatalf("unsafe export should be allowed: %v", err)
+	}
+}
+
+func TestPreviewTranscriptIncludesMessagesAndToolSummaries(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		SourceCWD:   "/source/project",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	session := strings.Join([]string{
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"please inspect"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_1","arguments":"{\"cmd\":\"rg TODO\"}","status":"completed"}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"line 1\nline 2\n"}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call_2","input":"*** Begin Patch\n..."}}`,
+		`{"timestamp":"2026-06-12T00:00:05Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_2","output":"Success"}}`,
+		`{"timestamp":"2026-06-12T00:00:06Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}`,
+	}, "\n") + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session))
+	if transcript.MessageCount != 2 {
+		t.Fatalf("message_count = %d", transcript.MessageCount)
+	}
+	if transcript.ToolCount != 2 {
+		t.Fatalf("tool_count = %d", transcript.ToolCount)
+	}
+	if len(transcript.Entries) != 4 {
+		t.Fatalf("entries = %d", len(transcript.Entries))
+	}
+	if transcript.Entries[1].Tool != "functions.exec_command" {
+		t.Fatalf("tool name = %q", transcript.Entries[1].Tool)
+	}
+	if transcript.Entries[1].OutputBytes == 0 {
+		t.Fatal("missing output byte summary")
+	}
+	if strings.Contains(transcript.Entries[1].InputPreview, "line 1") {
+		t.Fatal("tool output leaked into input preview")
+	}
+}
+
+func TestShareWorkerManifestIncludesPreviewAndAgentCommands(t *testing.T) {
+	sourceHome := createFakeCodexHome(t)
+	var captured LinkManifest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/capabilities":
+			_ = json.NewEncoder(w).Encode(WorkerCapabilities{Schema: LinkSchema, Service: "test", QuotaPolicy: "anonymous-small"})
+		case "/v1/shares":
+			if err := r.ParseMultipartForm(8 << 20); err != nil {
+				t.Fatalf("parse multipart: %v", err)
+			}
+			if err := json.Unmarshal([]byte(r.FormValue("manifest")), &captured); err != nil {
+				t.Fatalf("decode manifest: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(workerShareResponse{
+				ShareURL:    serverURL(r) + "/s/test-share",
+				ManifestURL: serverURL(r) + "/v1/shares/test-share",
+				ExpiresAt:   "2026-06-13T00:00:00Z",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	result, err := Share(ShareOptions{Home: sourceHome, Thread: testThreadID, Service: "worker", Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("status = %q", result.Status)
+	}
+	if captured.Import.InstallCommand != InstallCmd {
+		t.Fatalf("install command = %q", captured.Import.InstallCommand)
+	}
+	if captured.Import.DryRunCommand == "" || captured.Import.ExecuteCommand == "" || captured.Import.DocsURL != DefaultRepo {
+		t.Fatalf("missing import metadata: %+v", captured.Import)
+	}
+	if captured.Preview == nil {
+		t.Fatal("missing encrypted preview")
+	}
+	if captured.Preview.Schema != PreviewSchema {
+		t.Fatalf("preview schema = %q", captured.Preview.Schema)
+	}
+	key := linkKey(t, result.ShareURL)
+	transcript := decryptPreview(t, captured.Preview, key)
+	if transcript.ThreadID != testThreadID {
+		t.Fatalf("preview thread id = %q", transcript.ThreadID)
+	}
+	if transcript.MessageCount == 0 {
+		t.Fatal("preview did not include messages")
 	}
 }
 
@@ -567,6 +660,44 @@ func readZipFile(t *testing.T, path, name string) string {
 		}
 		return string(content)
 	}
-	t.Fatalf("file %s not found", name)
+	t.Fatalf("missing zip file %s", name)
 	return ""
+}
+
+func linkKey(t *testing.T, rawURL string) []byte {
+	t.Helper()
+	_, key, err := parseLinkKey(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func decryptPreview(t *testing.T, preview *LinkPreview, key []byte) PreviewTranscript {
+	t.Helper()
+	nonce, err := base64.RawURLEncoding.DecodeString(preview.Crypto.Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := base64.RawURLEncoding.DecodeString(preview.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var transcript PreviewTranscript
+	if err := json.Unmarshal(plain, &transcript); err != nil {
+		t.Fatal(err)
+	}
+	return transcript
 }
