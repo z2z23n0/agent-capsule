@@ -51,6 +51,16 @@ func TestExportCreatesStandardZipWithAgentReadme(t *testing.T) {
 	if !strings.Contains(readme, "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main") {
 		t.Fatalf("AGENT_README.md does not include install command:\n%s", readme)
 	}
+	if !strings.Contains(readme, DefaultSkill) {
+		t.Fatalf("AGENT_README.md does not include skill URL:\n%s", readme)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal([]byte(readZipFile(t, out, "manifest.json")), &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	if manifest.SkillURL != DefaultSkill {
+		t.Fatalf("skill URL = %q", manifest.SkillURL)
+	}
 }
 
 func TestExportUsesNameWhenOutIsOmitted(t *testing.T) {
@@ -514,7 +524,7 @@ func TestShareWorkerManifestIncludesPreviewAndAgentCommands(t *testing.T) {
 	if captured.Import.InstallCommand != InstallCmd {
 		t.Fatalf("install command = %q", captured.Import.InstallCommand)
 	}
-	if captured.Import.DryRunCommand == "" || captured.Import.ExecuteCommand == "" || captured.Import.DocsURL != DefaultRepo {
+	if captured.Import.DryRunCommand == "" || captured.Import.ExecuteCommand == "" || captured.Import.DocsURL != DefaultRepo || captured.Import.SkillURL != DefaultSkill {
 		t.Fatalf("missing import metadata: %+v", captured.Import)
 	}
 	if captured.Preview == nil {

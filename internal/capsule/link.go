@@ -71,6 +71,7 @@ type LinkImport struct {
 	DryRunCommand  string `json:"dry_run_command,omitempty"`
 	ExecuteCommand string `json:"execute_command,omitempty"`
 	DocsURL        string `json:"docs_url,omitempty"`
+	SkillURL       string `json:"skill_url,omitempty"`
 }
 
 type LinkPreview struct {
@@ -341,6 +342,7 @@ func buildLinkManifest(exported *ExportResult, enc encryptedCapsule, service str
 			DryRunCommand:  "capsule import \"<this-url>\" --target codex --target-cwd .",
 			ExecuteCommand: "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
 			DocsURL:        DefaultRepo,
+			SkillURL:       DefaultSkill,
 		},
 		Service: LinkServiceInfo{Type: service},
 	}

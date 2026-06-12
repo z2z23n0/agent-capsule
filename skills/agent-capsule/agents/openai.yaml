@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Capsule"
+  short_description: "Share and restore coding agent sessions"
+  default_prompt: "Use $agent-capsule to share the current coding agent session as a capsule."

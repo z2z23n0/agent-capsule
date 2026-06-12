@@ -37,6 +37,18 @@ Claude Code support and cross-agent export/import are planned next.
 go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 ```
 
+## Agent skill
+
+Agents can optionally install the Agent Capsule skill from
+[`skills/agent-capsule`](skills/agent-capsule/SKILL.md). The skill teaches the
+agent when to install the CLI, how to export or share a session, how to import
+with inspect and dry-run first, and when to ask before writing local Codex
+history.
+
+Capsule files and links do not depend on the skill. They include agent-facing
+bootstrap instructions so a receiving agent can still install the CLI, inspect,
+dry-run, import, and verify the restored thread.
+
 ## Quick start: file handoff
 
 Export the current thread:

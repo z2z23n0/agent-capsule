@@ -30,6 +30,15 @@ Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会
 go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 ```
 
+## Agent Skill
+
+Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)。
+这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么先
+inspect 和 dry-run 再导入，以及什么时候必须先问用户再写本地 Codex history。
+
+胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方
+agent 即使没有预装 skill，也能安装 CLI、检查、dry-run、导入并验证新 thread。
+
 ## 快速开始：文件交接
 
 导出当前 thread：

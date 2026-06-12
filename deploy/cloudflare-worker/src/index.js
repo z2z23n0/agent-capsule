@@ -2,6 +2,7 @@ const LINK_SCHEMA = "agent-capsule.link.v1";
 const GB = 1024 * 1024 * 1024;
 const DEFAULT_INSTALL_COMMAND = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main";
 const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
+const DEFAULT_SKILL_URL = "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule";
 const DEFAULT_DRY_RUN_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd .";
 const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";
 const SHARE_ID_BYTES = 12;
@@ -304,7 +305,8 @@ function importInfo() {
     install_command: DEFAULT_INSTALL_COMMAND,
     dry_run_command: quoteThisURL(DEFAULT_DRY_RUN_COMMAND),
     execute_command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
-    docs_url: DEFAULT_DOCS_URL
+    docs_url: DEFAULT_DOCS_URL,
+    skill_url: DEFAULT_SKILL_URL
   };
 }
 
@@ -368,6 +370,14 @@ function sharePageHTML(request, manifest, id) {
             <button type="button" data-copy="execute-command">Copy</button>
           </div>
           <pre id="execute-command"></pre>
+        </div>
+
+        <div class="command-block">
+          <div class="command-head">
+            <span>Skill</span>
+            <button type="button" data-copy="skill-url">Copy</button>
+          </div>
+          <pre id="skill-url"></pre>
         </div>
       </div>
     </details>
@@ -827,6 +837,7 @@ function renderCommands(importInfo) {
   $("install-command").textContent = importInfo.install_command || metadata.import.install_command;
   $("dry-run-command").textContent = commandText(importInfo.dry_run_command || metadata.import.dry_run_command);
   $("execute-command").textContent = commandText(importInfo.execute_command || importInfo.command || metadata.import.execute_command);
+  $("skill-url").textContent = importInfo.skill_url || metadata.import.skill_url || "";
 }
 
 function renderManifestInfo(manifest) {

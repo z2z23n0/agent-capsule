@@ -22,6 +22,7 @@ const (
 	SchemaVersion = 1
 	ArtifactType  = "agent-capsule"
 	DefaultRepo   = "https://github.com/z2z23n0/agent-capsule"
+	DefaultSkill  = DefaultRepo + "/tree/main/skills/agent-capsule"
 	InstallCmd    = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main"
 )
 
@@ -260,7 +261,7 @@ func buildManifest(data *codex.ExportData) Manifest {
 		SourceCLIVersion:          data.Summary.CLIVersion,
 		SourceModelProvider:       data.Summary.ModelProvider,
 		RepoURL:                   DefaultRepo,
-		SkillURL:                  DefaultRepo,
+		SkillURL:                  DefaultSkill,
 		InstallCommand:            InstallCmd,
 		RestoreCommand:            "capsule import <this-file>.capsule.zip --target codex --target-cwd . --execute",
 		Git:                       gitMetadata(data.ThreadRow),
@@ -467,11 +468,15 @@ Start here:
 
    capsule inspect <this-file>.capsule.zip
 
-4. Import into the current project when the user approves local Codex history writes:
+4. Optionally read the Agent Capsule skill for a richer agent workflow:
 
    %s
 
-5. Read agent/restore.md for the continuation context.
+5. Import into the current project when the user approves local Codex history writes:
+
+   %s
+
+6. Read agent/restore.md for the continuation context.
 
 Important boundaries:
 
@@ -482,7 +487,7 @@ Important boundaries:
 
 Thread: %s
 Title: %s
-`, manifest.InstallCommand, manifest.RestoreCommand, manifest.ThreadID, manifest.ThreadTitle)
+`, manifest.InstallCommand, manifest.SkillURL, manifest.RestoreCommand, manifest.ThreadID, manifest.ThreadTitle)
 }
 
 func restoreMarkdown(manifest Manifest, summary codex.SessionSummary) string {
