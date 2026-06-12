@@ -321,70 +321,59 @@ function sharePageHTML(request, manifest, id) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHTML(title)} - Capsule</title>
+  <title>${escapeHTML(title)} - Codex preview</title>
   <style>${sharePageCSS()}</style>
 </head>
 <body>
   <script id="agent-capsule-metadata" type="application/agent-capsule+json">${scriptJSON(metadata)}</script>
-  <div class="app-shell">
-    <header class="app-header">
-      <div class="header-title">
-        <span class="brand">Capsule</span>
-        <span id="header-session-title">${escapeHTML(title)}</span>
-      </div>
-      <div class="header-meta">
-        <span id="expires-at">Encrypted link</span>
-        <a class="docs-link" href="${escapeHTML(manifest.import.docs_url)}" rel="noreferrer">Docs</a>
-      </div>
-    </header>
-
-    <main class="thread-shell">
-      <section class="session-head" aria-labelledby="session-title">
-        <p class="eyebrow">Encrypted Codex session preview</p>
+  <main class="codex-shell">
+    <header class="capsule-bar">
+      <div class="capsule-copy">
+        <p class="capsule-kicker">Capsule preview</p>
         <h1 id="session-title">${escapeHTML(title)}</h1>
-        <p class="preview-note">This is a readable preview, not the full native thread. Give this link to an agent to restore the complete session into your own Codex UI.</p>
-        <div class="meta-row">
-          <span id="counts">Waiting for preview</span>
-          <span id="privacy-note">Decrypted locally with the URL key</span>
+        <div class="meta-line">
+          <span id="counts">正在等待预览</span>
+          <span id="expires-at">加密链接</span>
         </div>
-      </section>
+      </div>
 
-      <details class="restore-panel">
+      <details class="restore-drawer">
         <summary>
-          <span>Restore full session in Codex</span>
-          <small>Agent import commands</small>
+          <span>导入到 Codex</span>
+          <small>完整 session</small>
         </summary>
+        <p class="restore-note">这里是可读预览，不是完整原生线程。把当前链接交给 agent，它可以安装 capsule 并导入到你自己的 Codex 原生 UI 里继续。</p>
         <div class="restore-grid">
           <div class="command-block">
             <div class="command-head">
-              <span>Install</span>
-              <button type="button" data-copy="install-command">Copy</button>
+              <span>安装 CLI</span>
+              <button type="button" data-copy="install-command">复制</button>
             </div>
             <pre id="install-command"></pre>
           </div>
 
           <div class="command-block">
             <div class="command-head">
-              <span>Dry run</span>
-              <button type="button" data-copy="dry-run-command">Copy</button>
+              <span>预演导入</span>
+              <button type="button" data-copy="dry-run-command">复制</button>
             </div>
             <pre id="dry-run-command"></pre>
           </div>
 
-          <div class="command-block emphasized">
+          <div class="command-block">
             <div class="command-head">
-              <span>Import</span>
-              <button type="button" data-copy="execute-command">Copy</button>
+              <span>导入并恢复</span>
+              <button type="button" data-copy="execute-command">复制</button>
             </div>
             <pre id="execute-command"></pre>
           </div>
         </div>
       </details>
+    </header>
 
-      <div id="status" class="status">Loading encrypted preview from this link.</div>
-      <section id="transcript" class="transcript" aria-live="polite"></section>
-    </main>
-  </div>
+    <div id="status" class="status">正在读取这个链接里的加密预览。</div>
+    <section id="transcript" class="codex-thread" aria-live="polite"></section>
+  </main>
   <script>${sharePageJS()}</script>
 </body>
 </html>`;
@@ -394,302 +383,355 @@ function sharePageCSS() {
   return `
 :root {
   color-scheme: light;
-  --bg: #f6f5f1;
-  --surface: #ffffff;
-  --surface-soft: #f0efea;
-  --ink: #1f201d;
-  --muted: #6b6a62;
-  --line: #dedbd2;
-  --line-strong: #c9c4b8;
-  --user-bg: #ecefeb;
-  --assistant-bg: #ffffff;
-  --process-bg: #f8f7f3;
-  --accent: #315f57;
-  --accent-soft: #e7f0ed;
-  --warning: #855f22;
-  --error: #9a3329;
-  --code-bg: #171a18;
-  --code-ink: #eef3ef;
+  --page: #ffffff;
+  --ink: #1f2328;
+  --muted: #8a8f98;
+  --muted-strong: #686d75;
+  --line: #eceef0;
+  --line-strong: #d8dce0;
+  --bubble: #f1f2f4;
+  --panel: #eeeeef;
+  --panel-soft: #f7f7f8;
+  --code-bg: #eceeef;
+  --link: #1f73d2;
+  --warn: #86651f;
+  --error: #a33a32;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
   min-height: 100dvh;
-  background: var(--bg);
+  background: var(--page);
   color: var(--ink);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 button, a { font: inherit; }
-.app-shell { min-height: 100dvh; }
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 58px;
-  padding: 10px max(18px, calc((100vw - 1060px) / 2));
-  border-bottom: 1px solid var(--line);
-  background: rgba(246,245,241,.92);
-  backdrop-filter: blur(14px);
-}
-.header-title { display: flex; align-items: center; min-width: 0; gap: 10px; }
-.brand {
-  flex: 0 0 auto;
-  font-weight: 760;
-  font-size: 15px;
-  letter-spacing: 0;
-}
-#header-session-title {
-  min-width: 0;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.header-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
-.docs-link {
-  color: var(--accent);
-  text-decoration: none;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 10px;
-  background: rgba(255,255,255,.7);
-}
-.thread-shell {
-  width: min(960px, calc(100% - 32px));
+.codex-shell {
+  width: min(1080px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 34px 0 72px;
+  padding: 48px 0 88px;
 }
-.session-head { margin-bottom: 18px; }
-.eyebrow {
-  margin: 0 0 10px;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 720;
-  text-transform: uppercase;
+.capsule-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 0 0 22px;
+  border-bottom: 1px solid var(--line);
 }
-h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.15; letter-spacing: 0; overflow-wrap: anywhere; }
-.preview-note { max-width: 72ch; margin: 12px 0 0; color: var(--muted); font-size: 15px; }
-.meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-.meta-row span {
-  border: 1px solid var(--line);
-  background: var(--surface-soft);
-  border-radius: 999px;
-  padding: 5px 10px;
+.capsule-copy { min-width: 0; padding-top: 2px; }
+.capsule-kicker {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+h1 {
+  margin: 0;
+  max-width: 760px;
+  font-size: clamp(18px, 2.7vw, 24px);
+  line-height: 1.25;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
   color: var(--muted);
   font-size: 13px;
 }
-.restore-panel {
-  margin: 22px 0 18px;
+.restore-drawer {
+  flex: 0 0 min(390px, 42vw);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: 0 14px 42px rgba(31,32,29,.05);
+  border-radius: 12px;
+  background: var(--panel-soft);
   overflow: hidden;
 }
-.restore-panel summary {
+.restore-drawer summary {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   cursor: pointer;
-  padding: 14px 16px;
-  font-weight: 680;
+  padding: 12px 14px;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 650;
 }
-.restore-panel summary small { color: var(--muted); font-weight: 500; }
+.restore-drawer summary::-webkit-details-marker { display: none; }
+.restore-drawer summary small {
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.restore-note {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: var(--muted-strong);
+  font-size: 13px;
+  line-height: 1.55;
+}
 .restore-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 14px 14px;
+  gap: 8px;
+  padding: 0 12px 12px;
 }
 .status {
-  margin: 18px 0 20px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-  padding: 10px 13px;
-  border-radius: 8px;
+  margin: 22px 0 30px;
+  color: var(--muted-strong);
   font-size: 14px;
+  line-height: 1.55;
 }
-.status[data-kind="warn"] { border-left-color: var(--warning); background: #f8f1e4; color: var(--warning); }
-.status[data-kind="error"] { border-left-color: var(--error); background: #f8e9e6; color: var(--error); }
-.transcript { display: grid; gap: 14px; }
+.status[data-kind="warn"] { color: var(--warn); }
+.status[data-kind="error"] { color: var(--error); }
+.codex-thread {
+  display: block;
+  min-width: 0;
+}
 .message-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
   min-width: 0;
+  margin: 30px 0;
 }
-.message-row.user { justify-items: end; }
-.message-row.assistant { justify-items: start; }
+.message-row.user {
+  justify-content: flex-end;
+  margin-top: 8px;
+  margin-bottom: 52px;
+}
+.message-row.assistant { justify-content: flex-start; }
 .bubble {
-  width: fit-content;
-  max-width: min(760px, 86%);
   min-width: 0;
+  max-width: 100%;
 }
 .message-row.user .bubble {
-  background: var(--user-bg);
-  border: 1px solid var(--line);
-  border-radius: 18px 18px 5px 18px;
-  padding: 12px 14px;
+  width: fit-content;
+  max-width: min(760px, 78%);
+  background: var(--bubble);
+  border-radius: 22px;
+  padding: 14px 18px;
 }
 .message-row.assistant .bubble {
-  background: var(--assistant-bg);
-  border: 1px solid var(--line);
-  border-radius: 18px 18px 18px 5px;
-  padding: 14px 16px;
-  box-shadow: 0 10px 32px rgba(31,32,29,.04);
+  width: 100%;
+  max-width: 100%;
 }
 .role {
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 680;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .markdown {
-  font-size: 15px;
+  font-size: 17px;
+  line-height: 1.72;
   color: var(--ink);
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.message-row.user .markdown {
+  font-size: 16px;
+  line-height: 1.48;
+}
 .markdown > *:first-child { margin-top: 0; }
 .markdown > *:last-child { margin-bottom: 0; }
-.markdown p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.markdown p { margin: 0 0 16px; overflow-wrap: anywhere; }
+.message-row.user .markdown p { margin-bottom: 8px; }
 .markdown h1, .markdown h2, .markdown h3 {
-  margin: 14px 0 8px;
-  font-size: 1.05rem;
-  line-height: 1.3;
+  margin: 22px 0 10px;
+  font-size: 1.06em;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.markdown ul, .markdown ol { margin: 8px 0 10px; padding-left: 22px; }
-.markdown li { margin: 4px 0; overflow-wrap: anywhere; }
+.markdown ul, .markdown ol {
+  margin: 10px 0 18px;
+  padding-left: 26px;
+}
+.markdown li {
+  margin: 8px 0;
+  padding-left: 2px;
+  overflow-wrap: anywhere;
+}
 .markdown blockquote {
-  margin: 10px 0;
-  padding: 2px 0 2px 12px;
+  margin: 14px 0;
+  padding: 2px 0 2px 14px;
   border-left: 3px solid var(--line-strong);
   color: var(--muted);
 }
-.markdown a { color: #315f86; text-decoration-thickness: 1px; text-underline-offset: 2px; }
-.markdown code, .tool-input, .command-block pre {
+.markdown a,
+.file-link {
+  color: var(--link);
+  text-decoration: none;
+}
+.markdown a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.file-link { font-weight: 500; }
+.markdown code, .terminal-body, .command-block pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 .markdown code {
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: #f4f3ee;
-  padding: 1px 4px;
-  font-size: .92em;
+  border-radius: 7px;
+  background: var(--code-bg);
+  padding: 1px 6px;
+  font-size: .91em;
 }
 .markdown pre {
-  margin: 10px 0;
-  padding: 12px;
+  margin: 14px 0;
+  padding: 14px;
   overflow-x: auto;
   white-space: pre;
-  background: var(--code-bg);
-  color: var(--code-ink);
+  background: var(--panel);
+  color: var(--ink);
   border-radius: 8px;
 }
 .markdown pre code {
-  border: 0;
+  border-radius: 0;
   background: transparent;
   padding: 0;
   color: inherit;
 }
-.tool-input, .command-block pre {
+.terminal-body, .command-block pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0;
 }
 .process-row {
-  display: grid;
-  justify-items: start;
+  margin: 20px 0 32px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
 }
-details.process-card {
-  width: min(720px, 84%);
-  background: var(--process-bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+details.process-step {
+  width: 100%;
   color: var(--muted);
-  overflow: hidden;
 }
-details.process-card summary {
+details.process-step summary {
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 12px;
+  gap: 10px;
+  min-height: 28px;
   list-style: none;
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.35;
 }
-details.process-card summary::-webkit-details-marker { display: none; }
+details.process-step summary::-webkit-details-marker { display: none; }
+.process-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid currentColor;
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
 .chevron {
   width: 8px;
   height: 8px;
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
+  transform: rotate(45deg);
   transition: transform .15s ease;
+  margin-left: 2px;
+  flex: 0 0 auto;
 }
-details.process-card[open] .chevron { transform: rotate(45deg); }
+details.process-step[open] .chevron { transform: rotate(-135deg); }
 .process-title {
   min-width: 0;
-  color: var(--ink);
+  color: var(--muted);
   font-weight: 620;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.process-meta { flex: 0 0 auto; color: var(--muted); }
-.tool-input {
-  border-top: 1px solid var(--line);
-  padding: 12px;
+.process-meta {
+  flex: 0 0 auto;
   color: var(--muted);
-  font-size: 12px;
-  background: #fffdfa;
+}
+.process-panel {
+  margin: 14px 0 0 34px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  overflow: hidden;
+}
+.process-panel-head {
+  padding: 12px 14px 0;
+  color: var(--muted-strong);
+  font-size: 14px;
+}
+.terminal-body {
+  padding: 18px 14px 12px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.process-result {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 14px 12px;
+  color: var(--muted);
+  font-size: 14px;
 }
 .command-block {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 9px;
   overflow: hidden;
-  background: var(--code-bg);
+  background: white;
   min-width: 0;
 }
-.command-block.emphasized { border-color: rgba(49,95,87,.55); }
 .command-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  background: #f2f1ec;
+  gap: 10px;
+  background: #f7f7f8;
   color: var(--ink);
-  padding: 8px 10px;
+  padding: 8px 9px;
   font-size: 13px;
-  font-weight: 680;
+  font-weight: 620;
 }
 .command-head button {
   border: 1px solid var(--line);
   background: white;
-  color: var(--accent);
-  border-radius: 999px;
-  padding: 4px 9px;
+  color: var(--link);
+  border-radius: 7px;
+  padding: 3px 8px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .command-block pre {
-  color: var(--code-ink);
-  padding: 13px;
+  color: var(--ink);
+  padding: 10px;
   font-size: 12px;
 }
 @media (max-width: 760px) {
-  .app-header { align-items: flex-start; flex-direction: column; padding: 10px; }
-  .header-meta { width: 100%; justify-content: space-between; }
-  .thread-shell { width: min(100% - 20px, 680px); padding-top: 22px; }
-  .restore-grid { grid-template-columns: 1fr; }
-  .bubble, details.process-card { max-width: 100%; width: 100%; }
-  .message-row.user .bubble, .message-row.assistant .bubble { border-radius: 14px; }
+  .codex-shell {
+    width: min(100% - 22px, 720px);
+    padding: 22px 0 64px;
+  }
+  .capsule-bar {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .restore-drawer { flex-basis: auto; width: 100%; }
+  .status { margin: 18px 0 24px; }
+  .message-row { margin: 24px 0; }
+  .message-row.user { margin-bottom: 38px; }
+  .message-row.user .bubble {
+    max-width: 92%;
+    padding: 12px 15px;
+    border-radius: 18px;
+  }
+  .markdown { font-size: 16px; line-height: 1.68; }
+  .message-row.user .markdown { font-size: 15px; }
+  .process-row { margin: 18px 0 26px; }
+  .process-title { white-space: normal; }
+  .process-meta { display: none; }
+  .process-panel { margin-left: 0; }
 }
 `;
 }
@@ -723,11 +765,10 @@ function renderCommands(importInfo) {
 
 function renderManifestInfo(manifest) {
   if (manifest.thread && manifest.thread.title) {
-    document.title = manifest.thread.title + " - Capsule";
+    document.title = manifest.thread.title + " - Codex preview";
     $("session-title").textContent = manifest.thread.title;
-    $("header-session-title").textContent = manifest.thread.title;
   }
-  $("expires-at").textContent = manifest.expires_at ? "Expires " + new Date(manifest.expires_at).toLocaleString() : "Encrypted link";
+  $("expires-at").textContent = manifest.expires_at ? "过期时间 " + new Date(manifest.expires_at).toLocaleString() : "加密链接";
 }
 
 function fragmentKey() {
@@ -758,19 +799,19 @@ function renderTranscript(transcript) {
   const entries = (transcript.entries || []).filter((entry) => !isInternalContextEntry(entry));
   const messageCount = entries.filter((entry) => entry.kind === "message").length;
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
-  $("counts").textContent = messageCount + " messages - " + toolCount + " process steps";
+  $("counts").textContent = messageCount + " 条消息 - " + toolCount + " 个过程步骤";
   const root = $("transcript");
   root.replaceChildren();
   if (transcript.truncated) {
     const note = document.createElement("div");
     note.className = "status";
-    note.textContent = "This preview is truncated. Import the Capsule to continue in the complete Codex thread.";
+    note.textContent = "这个预览被截断了。导入 Capsule 后可以在完整 Codex 线程里继续。";
     root.appendChild(note);
   }
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "status";
-    empty.textContent = "No public preview entries are available for this session. An agent can still restore the full Capsule in Codex.";
+    empty.textContent = "这个 session 没有可公开预览的消息。agent 仍然可以把完整 Capsule 导入到 Codex。";
     root.appendChild(empty);
     return;
   }
@@ -811,23 +852,98 @@ function toolNode(entry) {
   const row = document.createElement("div");
   row.className = "process-row";
   const details = document.createElement("details");
-  details.className = "process-card";
+  details.className = "process-step";
   const summary = document.createElement("summary");
+  const icon = document.createElement("span");
+  icon.className = "process-icon";
+  icon.textContent = ">";
   const chevron = document.createElement("span");
   chevron.className = "chevron";
   const title = document.createElement("span");
   title.className = "process-title";
-  title.textContent = "Process - " + (entry.tool || "tool");
+  title.textContent = processSummary(entry);
   const meta = document.createElement("span");
   meta.className = "process-meta";
-  meta.textContent = [entry.status || "called", formatBytes(entry.output_bytes)].filter(Boolean).join(" - ");
-  summary.append(chevron, title, meta);
-  const input = document.createElement("pre");
-  input.className = "tool-input";
-  input.textContent = entry.input_preview || "No input preview";
-  details.append(summary, input);
+  meta.textContent = processMeta(entry);
+  summary.append(icon, title, meta, chevron);
+  const panel = document.createElement("div");
+  panel.className = "process-panel";
+  const head = document.createElement("div");
+  head.className = "process-panel-head";
+  head.textContent = processPanelTitle(entry);
+  const body = document.createElement("pre");
+  body.className = "terminal-body";
+  body.textContent = processBody(entry);
+  const result = document.createElement("div");
+  result.className = "process-result";
+  result.textContent = processResult(entry);
+  panel.append(head, body, result);
+  details.append(summary, panel);
   row.appendChild(details);
   return row;
+}
+
+function processSummary(entry) {
+  const tool = String(entry.tool || "");
+  const command = extractCommand(entry.input_preview || "");
+  if (tool.includes("apply_patch")) return "已修改 1 个文件";
+  if (tool.includes("web") || tool.includes("browser")) return "已查询网络";
+  if (tool.includes("exec") || command) {
+    if (/\\b(rg|grep|find)\\b/.test(command)) return "已搜索 1 次";
+    if (/\\b(sed|cat|nl|ls|wc)\\b|\\bgit\\s+(show|log|status|diff)\\b/.test(command)) return "已探索 1 个文件";
+    return "已运行 1 条命令";
+  }
+  return "已处理 1 个步骤";
+}
+
+function processMeta(entry) {
+  return [statusLabel(entry.status), formatBytes(entry.output_bytes)].filter(Boolean).join(" ");
+}
+
+function processPanelTitle(entry) {
+  const tool = String(entry.tool || "");
+  if (tool.includes("exec") || extractCommand(entry.input_preview || "")) return "Shell";
+  if (tool.includes("apply_patch")) return "Patch";
+  return entry.tool || "Process";
+}
+
+function processBody(entry) {
+  const input = String(entry.input_preview || "");
+  const command = extractCommand(input);
+  const output = formatBytes(entry.output_bytes);
+  const hidden = output ? "完整输出已隐藏，预览只记录输出大小：" + output : "完整输出已隐藏在分享预览之外。";
+  if (command) return "$ " + command + "\\n\\n" + hidden;
+  return (input || "没有输入预览") + "\\n\\n" + hidden;
+}
+
+function processResult(entry) {
+  const status = statusLabel(entry.status);
+  return status ? "✓ " + status : "✓ 已记录";
+}
+
+function statusLabel(status) {
+  const value = String(status || "").toLowerCase();
+  if (!value) return "";
+  if (["ok", "success", "succeeded", "completed", "complete", "done"].includes(value)) return "成功";
+  if (["error", "failed", "failure"].includes(value)) return "失败";
+  if (value === "cancelled" || value === "canceled") return "已取消";
+  return status;
+}
+
+function extractCommand(inputPreview) {
+  const text = String(inputPreview || "");
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.cmd === "string") return parsed.cmd;
+  } catch (_error) {
+  }
+  const match = text.match(/"cmd"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"/);
+  if (!match) return "";
+  try {
+    return JSON.parse('"' + match[1] + '"');
+  } catch (_error) {
+    return match[1];
+  }
 }
 
 function formatBytes(value) {
@@ -946,7 +1062,7 @@ function appendInlineWithBreaks(parent, text) {
 }
 
 function appendInline(parent, text) {
-  const pattern = new RegExp("(\\\\x60[^\\\\x60]+\\\\x60)|(\\\\*\\\\*[^*]+\\\\*\\\\*)|(__[^_]+__)|(\\\\[[^\\\\]]+\\\\]\\\\(https?://[^\\\\s)]+\\\\))|(\\\\*[^*\\\\n]+\\\\*)|(_[^_\\\\n]+_)", "g");
+  const pattern = new RegExp("(\\\\x60[^\\\\x60]+\\\\x60)|(\\\\*\\\\*[^*]+\\\\*\\\\*)|(__[^_]+__)|(\\\\[[^\\\\]]+\\\\]\\\\([^\\\\s)]+\\\\))|(\\\\*[^*\\\\n]+\\\\*)|(_[^_\\\\n]+_)", "g");
   const source = String(text || "");
   let index = 0;
   let match;
@@ -965,13 +1081,20 @@ function appendInlineToken(parent, token) {
     parent.appendChild(code);
     return;
   }
-  const link = token.match(/^\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)$/);
+  const link = token.match(/^\\[([^\\]]+)\\]\\(([^\\s)]+)\\)$/);
   if (link) {
-    const a = document.createElement("a");
-    a.href = link[2];
-    a.rel = "noreferrer";
-    a.textContent = link[1];
-    parent.appendChild(a);
+    if (/^https?:\\/\\//.test(link[2])) {
+      const a = document.createElement("a");
+      a.href = link[2];
+      a.rel = "noreferrer";
+      a.textContent = link[1];
+      parent.appendChild(a);
+    } else {
+      const span = document.createElement("span");
+      span.className = "file-link";
+      span.textContent = link[1];
+      parent.appendChild(span);
+    }
     return;
   }
   if ((token.startsWith("**") && token.endsWith("**")) || (token.startsWith("__") && token.endsWith("__"))) {
@@ -996,7 +1119,7 @@ document.addEventListener("click", async (event) => {
   if (!node) return;
   await navigator.clipboard.writeText(node.textContent);
   const old = button.textContent;
-  button.textContent = "Copied";
+  button.textContent = "已复制";
   setTimeout(() => { button.textContent = old; }, 1200);
 });
 
@@ -1008,21 +1131,21 @@ async function boot() {
     renderManifestInfo(manifest);
     renderCommands(manifest.import || metadata.import);
     if (!manifest.preview) {
-      $("counts").textContent = "Legacy link";
-      setStatus("This older Capsule link has no browser preview. An agent can still import the full session into Codex.", "warn");
+      $("counts").textContent = "旧版链接";
+      setStatus("这个旧版 Capsule 链接没有浏览器预览。agent 仍然可以把完整 session 导入到 Codex。", "warn");
       return;
     }
     const key = fragmentKey();
     if (!key) {
-      $("counts").textContent = "Missing key";
-      setStatus("This link is missing the #k decryption key. Use the full URL that was produced by capsule share.", "warn");
+      $("counts").textContent = "缺少 key";
+      setStatus("这个链接缺少 #k 解密 key。请使用 capsule share 生成的完整 URL。", "warn");
       return;
     }
     const transcript = await decryptPreview(manifest.preview, key);
     renderTranscript(transcript);
-    setStatus("Preview decrypted locally in this browser. The complete session stays in the encrypted Capsule until an agent imports it.");
+    setStatus("预览已在浏览器本地解密。页面内容只是预览，完整 session 可以通过上方“导入到 Codex”恢复到你的 Codex 原生 UI。");
   } catch (error) {
-    $("counts").textContent = "Preview unavailable";
+    $("counts").textContent = "预览不可用";
     setStatus(error && error.message ? error.message : String(error), "error");
   }
 }
