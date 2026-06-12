@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -55,6 +56,16 @@ type RestoreInput struct {
 	SessionBytes              []byte
 	IndexEntry                map[string]any
 	ThreadRow                 map[string]any
+	ImageAssets               []RestoreImageAsset
+}
+
+type RestoreImageAsset struct {
+	SourcePath string
+	FileName   string
+	SHA256     string
+	MIME       string
+	Bytes      int64
+	Content    []byte
 }
 
 type RestoreOptions struct {
@@ -64,15 +75,22 @@ type RestoreOptions struct {
 }
 
 type RestoreResult struct {
-	SourceThreadID    string   `json:"source_thread_id"`
-	Status            string   `json:"status"`
-	ThreadID          string   `json:"thread_id"`
-	TargetHome        string   `json:"target_home"`
-	TargetCWD         string   `json:"target_cwd"`
-	TargetSessionPath string   `json:"target_session_path"`
-	BackupDir         string   `json:"backup_dir,omitempty"`
-	Writes            []string `json:"writes"`
-	DryRun            bool     `json:"dry_run"`
+	SourceThreadID    string               `json:"source_thread_id"`
+	Status            string               `json:"status"`
+	ThreadID          string               `json:"thread_id"`
+	TargetHome        string               `json:"target_home"`
+	TargetCWD         string               `json:"target_cwd"`
+	TargetSessionPath string               `json:"target_session_path"`
+	Images            *RestoreImageSummary `json:"images,omitempty"`
+	BackupDir         string               `json:"backup_dir,omitempty"`
+	Writes            []string             `json:"writes"`
+	DryRun            bool                 `json:"dry_run"`
+}
+
+type RestoreImageSummary struct {
+	Copied    int    `json:"copied"`
+	Bytes     int64  `json:"bytes"`
+	TargetDir string `json:"target_dir,omitempty"`
 }
 
 type VerifyResult struct {
@@ -207,6 +225,7 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 	if err != nil {
 		return nil, err
 	}
+	imagePlan := planImageRestore(home, targetThreadID, input.ImageAssets)
 	result := &RestoreResult{
 		SourceThreadID:    input.ThreadID,
 		Status:            "planned",
@@ -214,9 +233,10 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 		TargetHome:        home,
 		TargetCWD:         targetCWD,
 		TargetSessionPath: targetSessionPath,
+		Images:            imagePlan.summary(),
 		DryRun:            !opts.Execute,
 	}
-	result.Writes = plannedWrites(home, targetSessionPath)
+	result.Writes = plannedWrites(home, targetSessionPath, imagePlan)
 	if !opts.Execute {
 		return result, nil
 	}
@@ -228,7 +248,10 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 	if err := os.MkdirAll(filepath.Dir(targetSessionPath), 0o755); err != nil {
 		return nil, err
 	}
-	rewritten, err := RewriteSessionForImport(input.SessionBytes, targetCWD, targetThreadID)
+	if err := writeImageAssets(imagePlan); err != nil {
+		return nil, err
+	}
+	rewritten, err := RewriteSessionForImportWithImages(input.SessionBytes, targetCWD, targetThreadID, imagePlan.pathMap)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +389,12 @@ func SummarizeSession(content []byte) SessionSummary {
 }
 
 func RewriteSessionForImport(content []byte, targetCWD, targetThreadID string) ([]byte, error) {
+	return RewriteSessionForImportWithImages(content, targetCWD, targetThreadID, nil)
+}
+
+func RewriteSessionForImportWithImages(content []byte, targetCWD, targetThreadID string, imagePaths map[string]string) ([]byte, error) {
 	var lines []string
+	replacements := imagePathReplacementPairs(imagePaths)
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
@@ -385,6 +413,9 @@ func RewriteSessionForImport(content []byte, targetCWD, targetThreadID string) (
 					payload["id"] = targetThreadID
 				}
 			}
+		}
+		if len(replacements) > 0 {
+			rewriteImagePathStrings(item, replacements)
 		}
 		encoded, err := json.Marshal(item)
 		if err != nil {
@@ -854,12 +885,149 @@ func newSessionPath(home, threadID string, now time.Time) string {
 	)
 }
 
-func plannedWrites(home, targetSessionPath string) []string {
+type restoreImagePlan struct {
+	assets    []restoreImageAssetPlan
+	pathMap   map[string]string
+	targetDir string
+	copied    int
+	bytes     int64
+}
+
+type restoreImageAssetPlan struct {
+	sourcePath string
+	targetPath string
+	bytes      int64
+	content    []byte
+}
+
+func planImageRestore(home, threadID string, assets []RestoreImageAsset) restoreImagePlan {
+	plan := restoreImagePlan{
+		pathMap: map[string]string{},
+	}
+	if len(assets) == 0 {
+		return plan
+	}
+	plan.targetDir = filepath.Join(home, "agent-capsule-assets", threadID, "images")
+	seenTarget := map[string]bool{}
+	for _, asset := range assets {
+		if asset.SourcePath == "" || len(asset.Content) == 0 {
+			continue
+		}
+		fileName := safeImageAssetFileName(asset)
+		targetPath := filepath.Join(plan.targetDir, fileName)
+		plan.pathMap[asset.SourcePath] = targetPath
+		if seenTarget[targetPath] {
+			continue
+		}
+		seenTarget[targetPath] = true
+		plan.assets = append(plan.assets, restoreImageAssetPlan{
+			sourcePath: asset.SourcePath,
+			targetPath: targetPath,
+			bytes:      int64(len(asset.Content)),
+			content:    asset.Content,
+		})
+		plan.copied++
+		plan.bytes += int64(len(asset.Content))
+	}
+	return plan
+}
+
+func (p restoreImagePlan) summary() *RestoreImageSummary {
+	if p.copied == 0 {
+		return nil
+	}
+	return &RestoreImageSummary{
+		Copied:    p.copied,
+		Bytes:     p.bytes,
+		TargetDir: p.targetDir,
+	}
+}
+
+func safeImageAssetFileName(asset RestoreImageAsset) string {
+	if asset.FileName != "" && !strings.Contains(asset.FileName, "/") && !strings.Contains(asset.FileName, "\\") && !strings.Contains(asset.FileName, string(filepath.Separator)) {
+		return asset.FileName
+	}
+	base := asset.SHA256
+	if base == "" {
+		base = fmt.Sprintf("%x", sha256.Sum256(asset.Content))
+	}
+	ext := ".img"
+	switch asset.MIME {
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+	return base + ext
+}
+
+func writeImageAssets(plan restoreImagePlan) error {
+	for _, asset := range plan.assets {
+		if err := writeFileExclusive(asset.targetPath, asset.content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func plannedWrites(home, targetSessionPath string, imagePlan restoreImagePlan) []string {
 	writes := []string{targetSessionPath, filepath.Join(home, SessionIndexFile)}
+	for _, asset := range imagePlan.assets {
+		writes = append(writes, asset.targetPath)
+	}
 	if exists(filepath.Join(home, StateSQLiteFile)) {
 		writes = append(writes, filepath.Join(home, StateSQLiteFile))
 	}
 	return writes
+}
+
+func imagePathReplacementPairs(imagePaths map[string]string) [][2]string {
+	if len(imagePaths) == 0 {
+		return nil
+	}
+	pairs := make([][2]string, 0, len(imagePaths))
+	for source, target := range imagePaths {
+		if source == "" || target == "" {
+			continue
+		}
+		pairs = append(pairs, [2]string{source, target})
+	}
+	sort.SliceStable(pairs, func(i, j int) bool {
+		return len(pairs[i][0]) > len(pairs[j][0])
+	})
+	return pairs
+}
+
+func rewriteImagePathStrings(value any, replacements [][2]string) {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, child := range v {
+			if text, ok := child.(string); ok {
+				v[key] = replaceImagePathString(text, replacements)
+				continue
+			}
+			rewriteImagePathStrings(child, replacements)
+		}
+	case []any:
+		for i, child := range v {
+			if text, ok := child.(string); ok {
+				v[i] = replaceImagePathString(text, replacements)
+				continue
+			}
+			rewriteImagePathStrings(child, replacements)
+		}
+	}
+}
+
+func replaceImagePathString(text string, replacements [][2]string) string {
+	for _, replacement := range replacements {
+		text = strings.ReplaceAll(text, replacement[0], replacement[1])
+	}
+	return text
 }
 
 func safeJoin(home, rel string) (string, error) {

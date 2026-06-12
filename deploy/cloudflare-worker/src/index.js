@@ -335,55 +335,42 @@ function sharePageHTML(request, manifest, id) {
 <body>
   <script id="agent-capsule-metadata" type="application/agent-capsule+json">${scriptJSON(metadata)}</script>
   <main class="codex-shell">
-    <header class="capsule-bar">
-      <div class="capsule-copy">
-        <p class="capsule-kicker">Capsule preview</p>
-        <h1 id="session-title">${escapeHTML(title)}</h1>
-        <p class="preview-note">这里是可读预览，不是完整原生线程。完整 session 可以交给 agent 导入到你自己的 Codex 原生 UI 里继续。</p>
-        <div class="meta-line">
-          <span id="counts">正在等待预览</span>
-          <span id="expires-at">加密链接</span>
+    <div class="share-meta" aria-live="polite">
+      <span id="counts">正在等待预览</span>
+      <span id="expires-at">加密链接</span>
+    </div>
+    <div id="status" class="status">正在读取这个链接里的加密预览。</div>
+    <section id="transcript" class="codex-thread" aria-label="Session preview" aria-live="polite"></section>
+
+    <details class="agent-restore" aria-labelledby="agents-title">
+      <summary id="agents-title">导入到 Codex 原生 UI</summary>
+      <p class="agent-restore-note">页面只是可读预览。把完整链接交给 agent，它可以安装 capsule，并把完整 session 作为新的 Codex thread 导入。</p>
+      <div class="restore-grid">
+        <div class="command-block">
+          <div class="command-head">
+            <span>Install</span>
+            <button type="button" data-copy="install-command">Copy</button>
+          </div>
+          <pre id="install-command"></pre>
+        </div>
+
+        <div class="command-block">
+          <div class="command-head">
+            <span>Dry run</span>
+            <button type="button" data-copy="dry-run-command">Copy</button>
+          </div>
+          <pre id="dry-run-command"></pre>
+        </div>
+
+        <div class="command-block emphasized">
+          <div class="command-head">
+            <span>Import</span>
+            <button type="button" data-copy="execute-command">Copy</button>
+          </div>
+          <pre id="execute-command"></pre>
         </div>
       </div>
-    </header>
-
-    <div class="share-layout">
-      <section class="preview-column" aria-label="Session preview">
-        <div id="status" class="status">正在读取这个链接里的加密预览。</div>
-        <section id="transcript" class="codex-thread" aria-live="polite"></section>
-      </section>
-
-      <aside class="agents-panel" aria-labelledby="agents-title">
-        <p class="agents-kicker">FOR AGENTS</p>
-        <h2 id="agents-title">Restore in Codex</h2>
-        <p class="agents-copy">Give this URL to a coding agent. It can install the importer, dry-run the write, then import the complete session as a new Codex thread.</p>
-        <div class="restore-grid">
-          <div class="command-block">
-            <div class="command-head">
-              <span>Install</span>
-              <button type="button" data-copy="install-command">Copy</button>
-            </div>
-            <pre id="install-command"></pre>
-          </div>
-
-          <div class="command-block">
-            <div class="command-head">
-              <span>Dry run</span>
-              <button type="button" data-copy="dry-run-command">Copy</button>
-            </div>
-            <pre id="dry-run-command"></pre>
-          </div>
-
-          <div class="command-block emphasized">
-            <div class="command-head">
-              <span>Import</span>
-              <button type="button" data-copy="execute-command">Copy</button>
-            </div>
-            <pre id="execute-command"></pre>
-          </div>
-        </div>
-      </aside>
-    </div>
+    </details>
   </main>
   <script>${sharePageJS()}</script>
 </body>
@@ -422,81 +409,17 @@ body {
 }
 button, a { font: inherit; }
 .codex-shell {
-  width: min(1180px, calc(100% - 40px));
+  width: min(1680px, calc(100% - 210px));
   margin: 0 auto;
-  padding: 48px 0 88px;
+  padding: 72px 0 96px;
 }
-.capsule-bar {
-  padding: 0 0 22px;
-  border-bottom: 1px solid var(--line);
-}
-.capsule-copy { min-width: 0; padding-top: 2px; }
-.capsule-kicker {
-  margin: 0 0 5px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-h1 {
-  margin: 0;
-  max-width: 760px;
-  font-size: clamp(18px, 2.7vw, 24px);
-  line-height: 1.25;
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-}
-.preview-note {
-  max-width: 760px;
-  margin: 11px 0 0;
-  color: var(--muted-strong);
-  font-size: 15px;
-  line-height: 1.55;
-}
-.meta-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.share-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
-  gap: 48px;
-  align-items: start;
-}
-.preview-column {
-  min-width: 0;
-}
-.agents-panel {
-  position: sticky;
-  top: 32px;
-  margin-top: 30px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: rgba(255,255,255,.98);
-  padding: 30px 28px;
-  box-shadow: 0 18px 46px rgba(31,35,40,.07);
-}
-.agents-kicker {
-  margin: 0 0 12px;
-  color: var(--accent);
-  font-size: 14px;
-  font-weight: 760;
-  letter-spacing: 0;
-}
-.agents-panel h2 {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1.15;
-  letter-spacing: 0;
-}
-.agents-copy {
-  margin: 18px 0 28px;
-  color: var(--muted-strong);
-  font-size: 17px;
-  line-height: 1.55;
+.share-meta {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .restore-grid {
   display: grid;
@@ -508,6 +431,7 @@ h1 {
   font-size: 14px;
   line-height: 1.55;
 }
+.status[hidden] { display: none; }
 .status[data-kind="warn"] { color: var(--warn); }
 .status[data-kind="error"] { color: var(--error); }
 .codex-thread {
@@ -517,12 +441,12 @@ h1 {
 .message-row {
   display: flex;
   min-width: 0;
-  margin: 30px 0;
+  margin: 34px 0;
 }
 .message-row.user {
   justify-content: flex-end;
-  margin-top: 8px;
-  margin-bottom: 52px;
+  margin-top: 4px;
+  margin-bottom: 86px;
 }
 .message-row.assistant { justify-content: flex-start; }
 .bubble {
@@ -531,10 +455,10 @@ h1 {
 }
 .message-row.user .bubble {
   width: fit-content;
-  max-width: min(760px, 78%);
+  max-width: min(1080px, 78%);
   background: var(--bubble);
-  border-radius: 22px;
-  padding: 14px 18px;
+  border-radius: 28px;
+  padding: 20px 28px;
 }
 .message-row.assistant .bubble {
   width: 100%;
@@ -549,15 +473,15 @@ h1 {
   white-space: nowrap;
 }
 .markdown {
-  font-size: 17px;
-  line-height: 1.72;
+  font-size: 24px;
+  line-height: 1.62;
   color: var(--ink);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .message-row.user .markdown {
-  font-size: 16px;
-  line-height: 1.48;
+  font-size: 24px;
+  line-height: 1.42;
 }
 .markdown > *:first-child { margin-top: 0; }
 .markdown > *:last-child { margin-bottom: 0; }
@@ -595,9 +519,9 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 .markdown code {
-  border-radius: 7px;
+  border-radius: 9px;
   background: var(--code-bg);
-  padding: 1px 6px;
+  padding: 1px 8px;
   font-size: .91em;
 }
 .markdown pre {
@@ -615,40 +539,117 @@ h1 {
   padding: 0;
   color: inherit;
 }
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+  max-width: min(760px, 100%);
+}
+.message-row.user .image-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.preview-image {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.image-omitted {
+  display: grid;
+  place-items: center;
+  min-height: 104px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted-strong);
+  background: var(--panel-soft);
+  font-size: 14px;
+  text-align: center;
+}
+.turn-process-row {
+  margin: 0 0 54px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.turn-process > summary {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  list-style: none;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1.3;
+}
+.turn-process > summary::-webkit-details-marker { display: none; }
+.turn-process-title {
+  font-weight: 560;
+}
+.turn-process-body {
+  display: grid;
+  gap: 28px;
+  margin-top: 34px;
+}
+.process-message {
+  max-width: 100%;
+}
+.process-message .markdown {
+  color: var(--ink);
+}
+.tool-group {
+  color: var(--muted);
+}
+.tool-group > summary,
+.tool-action > summary {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  list-style: none;
+  color: var(--muted);
+  font-size: 23px;
+  line-height: 1.35;
+}
+.tool-group > summary::-webkit-details-marker,
+.tool-action > summary::-webkit-details-marker { display: none; }
+.tool-action-list {
+  display: grid;
+  gap: 14px;
+  margin: 10px 0 0 0;
+}
+.tool-action {
+  min-width: 0;
+}
+.tool-action > summary {
+  margin-left: 0;
+  font-size: 21px;
+}
+.tool-action-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .terminal-body, .command-block pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0;
 }
-.process-row {
-  margin: 20px 0 32px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--line);
-}
-details.process-step {
-  width: 100%;
-  color: var(--muted);
-}
-details.process-step summary {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 28px;
-  list-style: none;
-  font-size: 15px;
-  line-height: 1.35;
-}
-details.process-step summary::-webkit-details-marker { display: none; }
 .process-icon {
   display: inline-grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border: 1.5px solid currentColor;
-  border-radius: 5px;
+  border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1;
   flex: 0 0 auto;
 }
@@ -662,42 +663,54 @@ details.process-step summary::-webkit-details-marker { display: none; }
   margin-left: 2px;
   flex: 0 0 auto;
 }
-details.process-step[open] .chevron { transform: rotate(-135deg); }
-.process-title {
-  min-width: 0;
-  color: var(--muted);
-  font-weight: 620;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.process-meta {
-  flex: 0 0 auto;
-  color: var(--muted);
-}
+.turn-process[open] > summary .chevron,
+.tool-group[open] > summary .chevron,
+.tool-action[open] > summary .chevron { transform: rotate(-135deg); }
 .process-panel {
-  margin: 14px 0 0 34px;
-  border-radius: 10px;
+  margin: 14px 0 10px 0;
+  border-radius: 12px;
   background: var(--panel);
   color: var(--ink);
   overflow: hidden;
 }
 .process-panel-head {
-  padding: 12px 14px 0;
+  padding: 16px 20px 0;
   color: var(--muted-strong);
-  font-size: 14px;
+  font-size: 22px;
 }
 .terminal-body {
-  padding: 18px 14px 12px;
-  font-size: 14px;
-  line-height: 1.45;
+  padding: 24px 20px 18px;
+  font-size: 22px;
+  line-height: 1.55;
+  max-height: 70vh;
+  overflow: auto;
 }
 .process-result {
   display: flex;
   justify-content: flex-end;
-  padding: 0 14px 12px;
+  padding: 0 20px 18px;
   color: var(--muted);
+  font-size: 22px;
+}
+.agent-restore {
+  margin-top: 72px;
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+  color: var(--muted-strong);
+}
+.agent-restore summary {
+  cursor: pointer;
+  width: fit-content;
+  list-style: none;
+  color: var(--muted);
+  font-size: 15px;
+}
+.agent-restore summary::-webkit-details-marker { display: none; }
+.agent-restore-note {
+  max-width: 760px;
+  margin: 12px 0 18px;
   font-size: 14px;
+  line-height: 1.55;
 }
 .command-block {
   border: 1px solid var(--line);
@@ -735,26 +748,13 @@ details.process-step[open] .chevron { transform: rotate(-135deg); }
   line-height: 1.45;
 }
 @media (max-width: 900px) {
-  .share-layout {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-  .agents-panel {
-    position: static;
-    order: -1;
-    margin: 18px 0 2px;
-  }
+  .codex-shell { width: min(100% - 72px, 900px); }
 }
 @media (max-width: 760px) {
   .codex-shell {
     width: min(100% - 22px, 720px);
     padding: 22px 0 64px;
   }
-  .agents-panel {
-    padding: 22px 18px;
-  }
-  .agents-panel h2 { font-size: 25px; }
-  .agents-copy { font-size: 15px; margin-bottom: 20px; }
   .status { margin: 18px 0 24px; }
   .message-row { margin: 24px 0; }
   .message-row.user { margin-bottom: 38px; }
@@ -765,10 +765,38 @@ details.process-step[open] .chevron { transform: rotate(-135deg); }
   }
   .markdown { font-size: 16px; line-height: 1.68; }
   .message-row.user .markdown { font-size: 15px; }
-  .process-row { margin: 18px 0 26px; }
-  .process-title { white-space: normal; }
-  .process-meta { display: none; }
-  .process-panel { margin-left: 0; }
+  .turn-process-row {
+    margin-bottom: 34px;
+    padding-bottom: 16px;
+  }
+  .turn-process > summary,
+  .tool-group > summary {
+    font-size: 16px;
+  }
+  .turn-process-body {
+    gap: 18px;
+    margin-top: 22px;
+  }
+  .tool-action > summary {
+    font-size: 15px;
+  }
+  .process-panel { border-radius: 10px; }
+  .process-panel-head,
+  .terminal-body,
+  .process-result {
+    font-size: 14px;
+  }
+  .terminal-body {
+    padding: 18px 14px 12px;
+    max-height: 68vh;
+  }
+  .process-panel-head { padding: 12px 14px 0; }
+  .process-result { padding: 0 14px 12px; }
+  .process-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+  }
 }
 `;
 }
@@ -792,6 +820,7 @@ function setStatus(text, kind = "info") {
   const node = $("status");
   node.textContent = text;
   node.dataset.kind = kind;
+  node.hidden = kind === "success";
 }
 
 function renderCommands(importInfo) {
@@ -803,7 +832,6 @@ function renderCommands(importInfo) {
 function renderManifestInfo(manifest) {
   if (manifest.thread && manifest.thread.title) {
     document.title = manifest.thread.title + " - Codex preview";
-    $("session-title").textContent = manifest.thread.title;
   }
   $("expires-at").textContent = manifest.expires_at ? "过期时间 " + new Date(manifest.expires_at).toLocaleString() : "加密链接";
 }
@@ -836,7 +864,9 @@ function renderTranscript(transcript) {
   const entries = (transcript.entries || []).filter((entry) => !isInternalContextEntry(entry));
   const messageCount = entries.filter((entry) => entry.kind === "message").length;
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
-  $("counts").textContent = messageCount + " 条消息 - " + toolCount + " 个过程步骤";
+  const imageCount = entries.reduce((count, entry) => count + (entry.images || []).filter((image) => !image.omitted).length, 0);
+  const omittedImages = entries.reduce((count, entry) => count + Number(entry.omitted_images || 0), 0);
+  $("counts").textContent = [messageCount + " 条消息", toolCount + " 个过程步骤", imageCount ? imageCount + " 张图片" : "", omittedImages ? "省略 " + omittedImages + " 张图片" : ""].filter(Boolean).join(" - ");
   const root = $("transcript");
   root.replaceChildren();
   if (transcript.truncated) {
@@ -852,9 +882,40 @@ function renderTranscript(transcript) {
     root.appendChild(empty);
     return;
   }
+  renderThreadEntries(root, entries);
+}
+
+function renderThreadEntries(root, entries) {
+  let turn = [];
+  const flushTurn = () => {
+    if (!turn.length) return;
+    appendAssistantTurn(root, turn);
+    turn = [];
+  };
   for (const entry of entries) {
-    root.appendChild(entry.kind === "tool" ? toolNode(entry) : messageNode(entry));
+    if (entry.kind === "message" && entry.role === "user") {
+      flushTurn();
+      root.appendChild(messageNode(entry));
+      continue;
+    }
+    turn.push(entry);
   }
+  flushTurn();
+}
+
+function appendAssistantTurn(root, entries) {
+  const finalIndex = lastAssistantMessageIndex(entries);
+  const processEntries = finalIndex >= 0 ? entries.slice(0, finalIndex).concat(entries.slice(finalIndex + 1)) : entries.slice();
+  const finalMessage = finalIndex >= 0 ? entries[finalIndex] : null;
+  if (processEntries.length) root.appendChild(turnProcessNode(processEntries));
+  if (finalMessage) root.appendChild(messageNode(finalMessage));
+}
+
+function lastAssistantMessageIndex(entries) {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    if (entries[i].kind === "message" && entries[i].role === "assistant") return i;
+  }
+  return -1;
 }
 
 function isInternalContextEntry(entry) {
@@ -874,9 +935,39 @@ function messageNode(entry) {
   const role = document.createElement("div");
   role.className = "role";
   role.textContent = roleLabel(entry.role);
-  bubble.append(role, renderMarkdown(entry.text || ""));
+  bubble.appendChild(role);
+  if (String(entry.text || "").trim()) bubble.appendChild(renderMarkdown(entry.text || ""));
+  if ((entry.images || []).length || entry.omitted_images) bubble.appendChild(imageGallery(entry));
   article.appendChild(bubble);
   return article;
+}
+
+function imageGallery(entry) {
+  const grid = document.createElement("div");
+  grid.className = "image-grid";
+  for (const image of entry.images || []) {
+    if (image.omitted) {
+      grid.appendChild(omittedImageNode(1));
+      continue;
+    }
+    if (!/^data:image\\//.test(String(image.src || ""))) continue;
+    const img = document.createElement("img");
+    img.className = "preview-image";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.alt = image.alt || "Uploaded image";
+    img.src = image.src;
+    grid.appendChild(img);
+  }
+  if (entry.omitted_images) grid.appendChild(omittedImageNode(Number(entry.omitted_images || 0)));
+  return grid;
+}
+
+function omittedImageNode(count) {
+  const node = document.createElement("div");
+  node.className = "image-omitted";
+  node.textContent = count > 1 ? "已省略 " + count + " 张图片，导入后可查看完整图片。" : "已省略 1 张图片，导入后可查看完整图片。";
+  return node;
 }
 
 function roleLabel(role) {
@@ -885,24 +976,79 @@ function roleLabel(role) {
   return role || "Message";
 }
 
-function toolNode(entry) {
+function turnProcessNode(entries) {
   const row = document.createElement("div");
-  row.className = "process-row";
+  row.className = "turn-process-row";
   const details = document.createElement("details");
-  details.className = "process-step";
+  details.className = "turn-process";
   const summary = document.createElement("summary");
-  const icon = document.createElement("span");
-  icon.className = "process-icon";
-  icon.textContent = ">";
-  const chevron = document.createElement("span");
-  chevron.className = "chevron";
   const title = document.createElement("span");
-  title.className = "process-title";
-  title.textContent = processSummary(entry);
-  const meta = document.createElement("span");
-  meta.className = "process-meta";
-  meta.textContent = processMeta(entry);
-  summary.append(icon, title, meta, chevron);
+  title.className = "turn-process-title";
+  title.textContent = processedLabel(entries);
+  summary.append(title, chevronNode());
+  const body = document.createElement("div");
+  body.className = "turn-process-body";
+  for (const group of processGroups(entries)) {
+    if (group.kind === "message") body.appendChild(processMessageNode(group.entry));
+    if (group.kind === "tools") body.appendChild(toolGroupNode(group.entries));
+  }
+  details.append(summary, body);
+  row.appendChild(details);
+  return row;
+}
+
+function processMessageNode(entry) {
+  const node = document.createElement("div");
+  node.className = "process-message";
+  if (String(entry.text || "").trim()) node.appendChild(renderMarkdown(entry.text || ""));
+  if ((entry.images || []).length || entry.omitted_images) node.appendChild(imageGallery(entry));
+  return node;
+}
+
+function processGroups(entries) {
+  const groups = [];
+  let tools = [];
+  const flushTools = () => {
+    if (tools.length) groups.push({ kind: "tools", entries: tools });
+    tools = [];
+  };
+  for (const entry of entries) {
+    if (entry.kind === "tool") {
+      tools.push(entry);
+      continue;
+    }
+    flushTools();
+    if (entry.kind === "message") groups.push({ kind: "message", entry });
+  }
+  flushTools();
+  return groups;
+}
+
+function toolGroupNode(entries) {
+  const details = document.createElement("details");
+  details.className = "tool-group";
+  const summary = document.createElement("summary");
+  summary.append(processIconNode(), document.createTextNode(toolGroupSummary(entries)), chevronNode());
+  const list = document.createElement("div");
+  list.className = "tool-action-list";
+  for (const entry of entries) list.appendChild(toolActionNode(entry));
+  details.append(summary, list);
+  return details;
+}
+
+function toolActionNode(entry) {
+  const details = document.createElement("details");
+  details.className = "tool-action";
+  const summary = document.createElement("summary");
+  const title = document.createElement("span");
+  title.className = "tool-action-title";
+  title.textContent = toolActionSummary(entry);
+  summary.append(title, chevronNode());
+  details.append(summary, toolPanelNode(entry));
+  return details;
+}
+
+function toolPanelNode(entry) {
   const panel = document.createElement("div");
   panel.className = "process-panel";
   const head = document.createElement("div");
@@ -915,26 +1061,71 @@ function toolNode(entry) {
   result.className = "process-result";
   result.textContent = processResult(entry);
   panel.append(head, body, result);
-  details.append(summary, panel);
-  row.appendChild(details);
-  return row;
+  return panel;
 }
 
-function processSummary(entry) {
-  const tool = String(entry.tool || "");
+function processedLabel(entries) {
+  const duration = formatDuration(entries[0] && entries[0].timestamp, entries[entries.length - 1] && entries[entries.length - 1].timestamp);
+  return duration ? "已处理 " + duration : "已处理";
+}
+
+function formatDuration(start, end) {
+  const first = Date.parse(start || "");
+  const last = Date.parse(end || "");
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return "";
+  const seconds = Math.max(1, Math.round((last - first) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes <= 0) return rest + "s";
+  return minutes + "m " + String(rest).padStart(2, "0") + "s";
+}
+
+function toolGroupSummary(entries) {
+  const searched = entries.filter((entry) => isSearchCommand(entry)).length;
+  const explored = entries.filter((entry) => isExploreCommand(entry)).length;
+  const commands = entries.filter((entry) => isShellCommand(entry)).length;
+  const files = entries.reduce((count, entry) => count + exploredFileCount(entry), 0);
+  const patches = entries.filter((entry) => String(entry.tool || "").includes("apply_patch")).length;
+  const web = entries.filter((entry) => /web|browser/.test(String(entry.tool || ""))).length;
+  const parts = [];
+  if (files) parts.push("已探索 " + files + " 个文件");
+  if (searched) parts.push(searched + " 次搜索");
+  if (commands) parts.push("已运行 " + commands + " 条命令");
+  if (patches) parts.push("已修改 " + patches + " 次");
+  if (web) parts.push("已查询 " + web + " 次");
+  return parts.length ? parts.join("") : "已处理 " + entries.length + " 个步骤";
+}
+
+function toolActionSummary(entry) {
   const command = extractCommand(entry.input_preview || "");
-  if (tool.includes("apply_patch")) return "已修改 1 个文件";
+  const tool = String(entry.tool || "");
+  if (command) return "已运行 " + command;
+  if (tool.includes("apply_patch")) return "已应用补丁";
   if (tool.includes("web") || tool.includes("browser")) return "已查询网络";
-  if (tool.includes("exec") || command) {
-    if (/\\b(rg|grep|find)\\b/.test(command)) return "已搜索 1 次";
-    if (/\\b(sed|cat|nl|ls|wc)\\b|\\bgit\\s+(show|log|status|diff)\\b/.test(command)) return "已探索 1 个文件";
-    return "已运行 1 条命令";
-  }
-  return "已处理 1 个步骤";
+  if (tool.includes("tool_search")) return "已搜索工具";
+  return "已调用 " + (entry.tool || "工具");
 }
 
-function processMeta(entry) {
-  return [statusLabel(entry.status), formatBytes(entry.output_bytes)].filter(Boolean).join(" ");
+function isShellCommand(entry) {
+  return Boolean(extractCommand(entry.input_preview || "")) || String(entry.tool || "").includes("exec");
+}
+
+function isSearchCommand(entry) {
+  const command = extractCommand(entry.input_preview || "");
+  return /\\b(rg|grep|find)\\b/.test(command) || String(entry.tool || "").includes("tool_search");
+}
+
+function isExploreCommand(entry) {
+  const command = extractCommand(entry.input_preview || "");
+  return /\\b(sed|cat|nl|ls|wc)\\b|\\bgit\\s+(show|log|status|diff)\\b/.test(command);
+}
+
+function exploredFileCount(entry) {
+  if (!isExploreCommand(entry)) return 0;
+  const command = extractCommand(entry.input_preview || "");
+  const matches = command.match(/(?:^|\\s)(?:[./~A-Za-z0-9_-][^\\s|;&]*)/g) || [];
+  const files = matches.filter((part) => /[./]/.test(part) && !/^\\s*-/.test(part));
+  return Math.max(1, Math.min(files.length, 12));
 }
 
 function processPanelTitle(entry) {
@@ -947,15 +1138,28 @@ function processPanelTitle(entry) {
 function processBody(entry) {
   const input = String(entry.input_preview || "");
   const command = extractCommand(input);
-  const output = formatBytes(entry.output_bytes);
-  const hidden = output ? "完整输出已隐藏，预览只记录输出大小：" + output : "完整输出已隐藏在分享预览之外。";
-  if (command) return "$ " + command + "\\n\\n" + hidden;
-  return (input || "没有输入预览") + "\\n\\n" + hidden;
+  const output = String(entry.output || "");
+  if (command) return "$ " + command + (output ? "\\n\\n" + output : "");
+  if (output) return (input ? input + "\\n\\n" : "") + output;
+  return input || "没有输入或输出。";
 }
 
 function processResult(entry) {
   const status = statusLabel(entry.status);
   return status ? "✓ " + status : "✓ 已记录";
+}
+
+function processIconNode() {
+  const icon = document.createElement("span");
+  icon.className = "process-icon";
+  icon.textContent = ">";
+  return icon;
+}
+
+function chevronNode() {
+  const chevron = document.createElement("span");
+  chevron.className = "chevron";
+  return chevron;
 }
 
 function statusLabel(status) {
@@ -1180,7 +1384,7 @@ async function boot() {
     }
     const transcript = await decryptPreview(manifest.preview, key);
     renderTranscript(transcript);
-    setStatus("预览已在浏览器本地解密。页面内容只是预览，完整 session 可以通过 For Agents 里的命令恢复到你的 Codex 原生 UI。");
+    setStatus("预览已在浏览器本地解密。", "success");
   } catch (error) {
     $("counts").textContent = "预览不可用";
     setStatus(error && error.message ? error.message : String(error), "error");
@@ -1303,12 +1507,12 @@ async function timingSafeTokenEqual(provided, expected) {
 }
 
 function readLimits(env) {
-  const maxBlobBytes = envInt(env, "MAX_BLOB_BYTES", 2 * 1024 * 1024);
-  const maxManifestBytes = envInt(env, "MAX_MANIFEST_BYTES", 1536 * 1024);
+  const maxBlobBytes = envInt(env, "MAX_BLOB_BYTES", 8 * 1024 * 1024);
+  const maxManifestBytes = envInt(env, "MAX_MANIFEST_BYTES", 3 * 1024 * 1024);
   return {
     maxBlobBytes,
     maxManifestBytes,
-    maxPreviewPayloadBytes: envInt(env, "MAX_PREVIEW_PAYLOAD_BYTES", 1024 * 1024),
+    maxPreviewPayloadBytes: envInt(env, "MAX_PREVIEW_PAYLOAD_BYTES", 2 * 1024 * 1024),
     maxRequestBytes: envInt(env, "MAX_REQUEST_BYTES", maxBlobBytes + maxManifestBytes + 64 * 1024),
     maxShareBytes: envInt(env, "MAX_SHARE_BYTES", maxBlobBytes + maxManifestBytes),
     maxTitleChars: envInt(env, "MAX_TITLE_CHARS", 180),

@@ -81,21 +81,23 @@ type ExportOptions struct {
 }
 
 type ExportResult struct {
-	Status    string     `json:"status"`
-	Path      string     `json:"path"`
-	ThreadID  string     `json:"thread_id"`
-	Title     string     `json:"title"`
-	Safety    SafetyScan `json:"safety"`
-	Bytes     int64      `json:"bytes"`
-	Checksums string     `json:"checksums"`
+	Status    string       `json:"status"`
+	Path      string       `json:"path"`
+	ThreadID  string       `json:"thread_id"`
+	Title     string       `json:"title"`
+	Safety    SafetyScan   `json:"safety"`
+	Images    ImageSummary `json:"images"`
+	Bytes     int64        `json:"bytes"`
+	Checksums string       `json:"checksums"`
 }
 
 type InspectResult struct {
-	Status    string     `json:"status"`
-	Path      string     `json:"path"`
-	Manifest  Manifest   `json:"manifest"`
-	Safety    SafetyScan `json:"safety"`
-	Checksums string     `json:"checksums"`
+	Status    string       `json:"status"`
+	Path      string       `json:"path"`
+	Manifest  Manifest     `json:"manifest"`
+	Safety    SafetyScan   `json:"safety"`
+	Images    ImageSummary `json:"images"`
+	Checksums string       `json:"checksums"`
 }
 
 type loadedCapsule struct {
@@ -104,6 +106,8 @@ type loadedCapsule struct {
 	IndexEntry  map[string]any
 	ThreadRow   map[string]any
 	Safety      SafetyScan
+	Images      ImageSummary
+	ImageAssets []imageAssetFile
 	Checksums   ChecksumFile
 	RawPayloads map[string][]byte
 }
@@ -129,8 +133,10 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 	if out == "" {
 		out = DefaultOutputName(opts.Name, data.Title, data.Summary.FirstUserText, data.ThreadID)
 	}
+	imageBundle := buildImageBundle(data)
 	manifest := buildManifest(data)
-	files, err := buildFiles(manifest, data, scan)
+	addImageFilesToManifest(&manifest, imageBundle)
+	files, err := buildFiles(manifest, data, scan, imageBundle)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +156,7 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 		ThreadID:  data.ThreadID,
 		Title:     data.Title,
 		Safety:    scan,
+		Images:    imageBundle.summary(),
 		Bytes:     fileSize(info),
 		Checksums: "sha256",
 	}, nil
@@ -165,6 +172,7 @@ func Inspect(path string) (*InspectResult, error) {
 		Path:      path,
 		Manifest:  loaded.Manifest,
 		Safety:    loaded.Safety,
+		Images:    loaded.Images,
 		Checksums: loaded.Checksums.Algorithm,
 	}, nil
 }
@@ -181,6 +189,7 @@ func Restore(path string, opts codex.RestoreOptions) (*codex.RestoreResult, erro
 		SessionBytes:              loaded.Session,
 		IndexEntry:                loaded.IndexEntry,
 		ThreadRow:                 loaded.ThreadRow,
+		ImageAssets:               restoreImageAssets(loaded.ImageAssets),
 	}
 	return codex.RestoreThread(input, opts)
 }
@@ -255,7 +264,7 @@ func buildManifest(data *codex.ExportData) Manifest {
 		InstallCommand:            InstallCmd,
 		RestoreCommand:            "capsule import <this-file>.capsule.zip --target codex --target-cwd . --execute",
 		Git:                       gitMetadata(data.ThreadRow),
-		Files:                     RequiredFiles,
+		Files:                     append([]string(nil), RequiredFiles...),
 		Notes: []string{
 			"v0.1 imports a Codex session from a local zip file as a new thread.",
 			"It does not migrate auth, provider credentials, cloud state, or guarantee encrypted_content can continue cryptographically unchanged.",
@@ -263,7 +272,15 @@ func buildManifest(data *codex.ExportData) Manifest {
 	}
 }
 
-func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan) (map[string][]byte, error) {
+func addImageFilesToManifest(manifest *Manifest, bundle imageBundle) {
+	if !bundle.hasManifest() {
+		return
+	}
+	manifest.Files = append(manifest.Files, imageFiles(bundle)...)
+	manifest.Notes = append(manifest.Notes, "Image assets may include user-uploaded local image files referenced by this Codex session.")
+}
+
+func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan, imageBundle imageBundle) (map[string][]byte, error) {
 	manifestPayload, err := jsonBytes(manifest)
 	if err != nil {
 		return nil, err
@@ -280,7 +297,7 @@ func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan) (map
 	if err != nil {
 		return nil, err
 	}
-	return map[string][]byte{
+	files := map[string][]byte{
 		"manifest.json":          manifestPayload,
 		"AGENT_README.md":        []byte(agentReadme(manifest)),
 		"codex/session.jsonl":    data.SessionBytes,
@@ -288,7 +305,18 @@ func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan) (map
 		"codex/thread-row.json":  threadPayload,
 		"agent/restore.md":       []byte(restoreMarkdown(manifest, data.Summary)),
 		"safety/scan.json":       scanPayload,
-	}, nil
+	}
+	if imageBundle.hasManifest() {
+		imagePayload, err := jsonBytes(imageBundle.Manifest)
+		if err != nil {
+			return nil, err
+		}
+		files[ImageAssetsManifestPath] = imagePayload
+		for name, content := range imageBundle.Files {
+			files[name] = content
+		}
+	}
+	return files, nil
 }
 
 func buildChecksums(files map[string][]byte) ChecksumFile {
@@ -388,12 +416,19 @@ func load(path string) (*loadedCapsule, error) {
 	if err := json.Unmarshal(payloads["safety/scan.json"], &scan); err != nil {
 		return nil, err
 	}
+	imageAssets, imageSummary, err := loadImageAssets(payloads)
+	if err != nil {
+		return nil, err
+	}
+	imageSummary = summarizeLoadedImages(payloads["codex/session.jsonl"], imageSummary)
 	return &loadedCapsule{
 		Manifest:    manifest,
 		Session:     payloads["codex/session.jsonl"],
 		IndexEntry:  indexEntry,
 		ThreadRow:   threadRow,
 		Safety:      scan,
+		Images:      imageSummary,
+		ImageAssets: imageAssets,
 		Checksums:   checksums,
 		RawPayloads: payloads,
 	}, nil
@@ -423,7 +458,7 @@ This is a standard zip file for importing one Codex session into a local Codex U
 
 Start here:
 
-1. Read manifest.json and safety/scan.json.
+1. Read manifest.json, safety/scan.json, and codex/assets/images.json if present.
 2. Install the CLI if it is missing:
 
    %s
@@ -443,6 +478,7 @@ Important boundaries:
 - Do not migrate auth, provider credentials, or secrets.
 - capsule import is dry-run by default; --execute is required to write.
 - Import always creates a new thread id, like a Codex session fork.
+- This capsule may include image assets referenced by the Codex session; inspect image counts before importing.
 
 Thread: %s
 Title: %s

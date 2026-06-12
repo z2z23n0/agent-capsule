@@ -108,18 +108,19 @@ type S3Options struct {
 }
 
 type ShareResult struct {
-	Status      string     `json:"status"`
-	Service     string     `json:"service"`
-	ShareURL    string     `json:"share_url,omitempty"`
-	ManifestURL string     `json:"manifest_url,omitempty"`
-	ExpiresAt   string     `json:"expires_at,omitempty"`
-	Fallback    string     `json:"fallback,omitempty"`
-	Path        string     `json:"path,omitempty"`
-	ThreadID    string     `json:"thread_id"`
-	Title       string     `json:"title"`
-	Safety      SafetyScan `json:"safety"`
-	Bytes       int64      `json:"bytes"`
-	Warnings    []string   `json:"warnings,omitempty"`
+	Status      string       `json:"status"`
+	Service     string       `json:"service"`
+	ShareURL    string       `json:"share_url,omitempty"`
+	ManifestURL string       `json:"manifest_url,omitempty"`
+	ExpiresAt   string       `json:"expires_at,omitempty"`
+	Fallback    string       `json:"fallback,omitempty"`
+	Path        string       `json:"path,omitempty"`
+	ThreadID    string       `json:"thread_id"`
+	Title       string       `json:"title"`
+	Safety      SafetyScan   `json:"safety"`
+	Images      ImageSummary `json:"images"`
+	Bytes       int64        `json:"bytes"`
+	Warnings    []string     `json:"warnings,omitempty"`
 }
 
 type WorkerCapabilities struct {
@@ -171,6 +172,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 			ThreadID: result.ThreadID,
 			Title:    result.Title,
 			Safety:   result.Safety,
+			Images:   result.Images,
 			Bytes:    result.Bytes,
 		}, nil
 	}
@@ -233,6 +235,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 			ThreadID: exported.ThreadID,
 			Title:    exported.Title,
 			Safety:   exported.Safety,
+			Images:   exported.Images,
 			Bytes:    exported.Bytes,
 			Warnings: warnings,
 		}, nil
@@ -249,6 +252,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 		ThreadID:    exported.ThreadID,
 		Title:       exported.Title,
 		Safety:      exported.Safety,
+		Images:      exported.Images,
 		Bytes:       exported.Bytes,
 		Warnings:    warnings,
 	}, nil

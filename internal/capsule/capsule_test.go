@@ -196,6 +196,104 @@ func TestRestoreIntoSameHomeCreatesForkWithoutTouchingSource(t *testing.T) {
 	}
 }
 
+func TestExportAndRestoreLocalImageAssets(t *testing.T) {
+	sourceHome := createFakeCodexHome(t)
+	imagePath := filepath.Join(t.TempDir(), "upload.png")
+	imageBytes := tinyPNG(t)
+	if err := os.WriteFile(imagePath, imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)
+	sessionPath := fakeSessionPath(sourceHome)
+	appendJSONL(t, sessionPath, map[string]any{
+		"timestamp": "2026-06-11T00:00:04Z",
+		"type":      "event_msg",
+		"payload": map[string]any{
+			"type":         "user_message",
+			"local_images": []string{imagePath},
+		},
+	})
+	appendJSONL(t, sessionPath, map[string]any{
+		"timestamp": "2026-06-11T00:00:05Z",
+		"type":      "response_item",
+		"payload": map[string]any{
+			"type": "message",
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "input_text", "text": "please inspect\n<image name=\"upload.png\" path=\"" + imagePath + "\">\n# Files mentioned by the user\n- " + imagePath},
+				{"type": "input_image", "image_url": dataURL, "detail": "high"},
+			},
+		},
+	})
+
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	exported, err := Export(ExportOptions{Home: sourceHome, Thread: testThreadID, Out: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.Images.Copied != 1 || exported.Images.Embedded != 1 || exported.Images.Bytes == 0 {
+		t.Fatalf("unexpected image summary: %+v", exported.Images)
+	}
+	var imageManifest ImageAssetsManifest
+	if err := json.Unmarshal([]byte(readZipFile(t, out, ImageAssetsManifestPath)), &imageManifest); err != nil {
+		t.Fatal(err)
+	}
+	if imageManifest.Schema != ImageAssetsSchema || len(imageManifest.Images) != 1 {
+		t.Fatalf("unexpected image manifest: %+v", imageManifest)
+	}
+	asset := imageManifest.Images[0]
+	if asset.Status != "copied" || asset.SourcePath != imagePath || asset.ZipPath == "" {
+		t.Fatalf("unexpected image asset metadata: %+v", asset)
+	}
+	if got := readZipBytes(t, out, asset.ZipPath); string(got) != string(imageBytes) {
+		t.Fatal("zip image payload mismatch")
+	}
+	inspected, err := Inspect(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Images.Copied != 1 || inspected.Images.Embedded != 1 {
+		t.Fatalf("inspect image summary = %+v", inspected.Images)
+	}
+
+	targetHome := createEmptyCodexHome(t)
+	targetCWD := t.TempDir()
+	plan, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Images == nil || plan.Images.Copied != 1 {
+		t.Fatalf("dry-run missing image plan: %+v", plan.Images)
+	}
+	if !containsPathSegment(plan.Writes, "agent-capsule-assets") {
+		t.Fatalf("dry-run writes do not include image assets: %+v", plan.Writes)
+	}
+	result, err := Restore(out, codex.RestoreOptions{Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Images == nil || result.Images.Copied != 1 || result.Images.TargetDir == "" {
+		t.Fatalf("execute missing image summary: %+v", result.Images)
+	}
+	restoredImagePath := filepath.Join(result.Images.TargetDir, filepath.Base(asset.ZipPath))
+	if got, err := os.ReadFile(restoredImagePath); err != nil || string(got) != string(imageBytes) {
+		t.Fatalf("restored image mismatch: len=%d err=%v", len(got), err)
+	}
+	restoredSession, err := os.ReadFile(result.TargetSessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(restoredSession), imagePath) {
+		t.Fatal("restored session still contains source image path")
+	}
+	if !strings.Contains(string(restoredSession), restoredImagePath) {
+		t.Fatal("restored session does not contain target image path")
+	}
+	if !strings.Contains(string(restoredSession), dataURL) {
+		t.Fatal("input_image data URL was not preserved")
+	}
+}
+
 func TestSecretScanBlocksExport(t *testing.T) {
 	home := createFakeCodexHome(t)
 	sessionPath := filepath.Join(home, "sessions", "2026", "06", "11", "rollout-2026-06-11T00-00-00-"+testThreadID+".jsonl")
@@ -245,8 +343,11 @@ func TestPreviewTranscriptIncludesMessagesAndToolSummaries(t *testing.T) {
 	if transcript.Entries[1].OutputBytes == 0 {
 		t.Fatal("missing output byte summary")
 	}
+	if transcript.Entries[1].Output != "line 1\nline 2\n" {
+		t.Fatalf("tool output = %q", transcript.Entries[1].Output)
+	}
 	if strings.Contains(transcript.Entries[1].InputPreview, "line 1") {
-		t.Fatal("tool output leaked into input preview")
+		t.Fatal("tool output leaked into input preview instead of output field")
 	}
 }
 
@@ -269,6 +370,90 @@ func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	}
 	if strings.Contains(transcript.Entries[0].Text, "AGENTS.md") {
 		t.Fatal("internal AGENTS.md context leaked into preview")
+	}
+}
+
+func TestPreviewTranscriptIncludesPureImageMessages(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(tinyPNG(t))
+	session := `{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"` + dataURL + `","detail":"high"}]}}` + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session))
+	if transcript.MessageCount != 1 || len(transcript.Entries) != 1 {
+		t.Fatalf("unexpected transcript: %+v", transcript)
+	}
+	if transcript.Entries[0].Text != "" || len(transcript.Entries[0].Images) != 1 {
+		t.Fatalf("pure image message was not preserved: %+v", transcript.Entries[0])
+	}
+	if transcript.Entries[0].Images[0].Src != dataURL {
+		t.Fatal("preview image src mismatch")
+	}
+}
+
+func TestPreviewTranscriptPrefersEmbeddedImageOverLocalFallback(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	imageBytes := tinyPNG(t)
+	localPath := "/tmp/codex-clipboard-upload.png"
+	localAsset := imageAssetFile{
+		Metadata: ImageAssetMetadata{
+			SourcePath:   localPath,
+			MIME:         "image/png",
+			OriginalName: "upload.png",
+			Status:       "copied",
+		},
+		Content: imageBytes,
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("embedded"))
+	session := `{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<image name=\"upload.png\" path=\"` + localPath + `\">"},{"type":"input_image","image_url":"` + dataURL + `","detail":"high"}]}}` + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session), localAsset)
+	if len(transcript.Entries) != 1 || len(transcript.Entries[0].Images) != 1 {
+		t.Fatalf("unexpected image entries: %+v", transcript.Entries)
+	}
+	if transcript.Entries[0].Images[0].Src != dataURL {
+		t.Fatal("preview did not prefer embedded input_image data URL")
+	}
+}
+
+func TestPreviewTranscriptOmitsImagesAfterSoftLimit(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	var content []map[string]any
+	for i := 0; i < maxPreviewImages+1; i++ {
+		content = append(content, map[string]any{
+			"type":      "input_image",
+			"image_url": "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte{byte(i)}),
+		})
+	}
+	line := map[string]any{
+		"timestamp": "2026-06-12T00:00:01Z",
+		"type":      "response_item",
+		"payload": map[string]any{
+			"type":    "message",
+			"role":    "user",
+			"content": content,
+		},
+	}
+	payload, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript := buildPreviewTranscript(manifest, append(payload, '\n'))
+	if len(transcript.Entries) != 1 {
+		t.Fatalf("entries = %d", len(transcript.Entries))
+	}
+	entry := transcript.Entries[0]
+	if len(entry.Images) != maxPreviewImages || entry.OmittedImages != 1 {
+		t.Fatalf("soft limit not enforced: images=%d omitted=%d", len(entry.Images), entry.OmittedImages)
 	}
 }
 
@@ -572,6 +757,10 @@ func createFakeCodexHome(t *testing.T) string {
 	return home
 }
 
+func fakeSessionPath(home string) string {
+	return filepath.Join(home, "sessions", "2026", "06", "11", "rollout-2026-06-11T00-00-00-"+testThreadID+".jsonl")
+}
+
 func serverURL(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
@@ -660,7 +849,28 @@ func writeJSONL(t *testing.T, path string, value any) {
 	}
 }
 
+func appendJSONL(t *testing.T, path string, value any) {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if _, err := file.Write(append(payload, '\n')); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readZipFile(t *testing.T, path, name string) string {
+	t.Helper()
+	return string(readZipBytes(t, path, name))
+}
+
+func readZipBytes(t *testing.T, path, name string) []byte {
 	t.Helper()
 	reader, err := zip.OpenReader(path)
 	if err != nil {
@@ -680,10 +890,28 @@ func readZipFile(t *testing.T, path, name string) string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return string(content)
+		return content
 	}
 	t.Fatalf("missing zip file %s", name)
-	return ""
+	return nil
+}
+
+func containsPathSegment(paths []string, segment string) bool {
+	for _, path := range paths {
+		if strings.Contains(path, segment) {
+			return true
+		}
+	}
+	return false
+}
+
+func tinyPNG(t *testing.T) []byte {
+	t.Helper()
+	content, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
 }
 
 func linkKey(t *testing.T, rawURL string) []byte {

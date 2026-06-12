@@ -29,6 +29,10 @@ test("anonymous upload/download happy path", async () => {
   const downloaded = await worker.fetch(new Request(manifestJSON.bundle.url), env);
   assert.equal(downloaded.status, 200);
   assert.deepEqual(new Uint8Array(await downloaded.arrayBuffer()), new Uint8Array([1, 2, 3]));
+
+  const caps = await worker.fetch(new Request(BASE_URL + "/v1/capabilities"), env);
+  assert.equal(caps.status, 200);
+  assert.equal((await caps.json()).max_blob_bytes, 8 * 1024 * 1024);
 });
 
 test("configured BYO token gates uploads but not public reads", async () => {
@@ -173,16 +177,24 @@ test("share page serves human preview shell and agent metadata", async () => {
   const page = await worker.fetch(new Request(created.share_url + "#k=test"), env);
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /这里是可读预览/);
-  assert.match(html, /FOR AGENTS/);
-  assert.match(html, /Restore in Codex/);
-  assert.match(html, /agents-panel/);
+  assert.match(html, /页面只是可读预览/);
+  assert.match(html, /导入到 Codex 原生 UI/);
+  assert.match(html, /agent-restore/);
   assert.match(html, /codex-thread/);
-  assert.match(html, /process-step/);
-  assert.match(html, /function processSummary/);
+  assert.match(html, /turn-process/);
+  assert.match(html, /tool-group/);
+  assert.match(html, /tool-action/);
+  assert.match(html, /function turnProcessNode/);
+  assert.match(html, /function toolGroupNode/);
+  assert.match(html, /function toolActionNode/);
   assert.match(html, /function renderMarkdown/);
+  assert.match(html, /function imageGallery/);
   assert.match(html, /function isInternalContextEntry/);
+  assert.match(html, /image-grid/);
+  assert.match(html, /preview-image/);
   assert.doesNotMatch(html, /restore-drawer/);
+  assert.doesNotMatch(html, /agents-panel/);
+  assert.doesNotMatch(html, /share-layout/);
   assert.match(html, /application\/agent-capsule\+json/);
   assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
 

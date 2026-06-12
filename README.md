@@ -26,6 +26,9 @@ and keep working from there.
 
 Agent Capsule currently supports Codex export and import.
 
+Codex image uploads referenced by a session are preserved. Agent Capsule does
+not package arbitrary non-image files yet.
+
 Claude Code support and cross-agent export/import are planned next.
 
 ## Install
@@ -88,6 +91,10 @@ sent to the server by normal browser requests.
 
 The browser page shows a locally decrypted preview and includes agent-friendly
 install, dry-run, and import commands.
+
+For sessions with images, the browser preview shows image thumbnails when they
+fit the preview size limit. Large image-heavy sessions still import from the
+complete encrypted capsule.
 
 If link upload fails because the endpoint is missing, unavailable, or over
 quota, Agent Capsule writes a local `.capsule.zip` fallback and returns
@@ -179,10 +186,17 @@ AGENT_README.md
 codex/session.jsonl
 codex/index-entry.json
 codex/thread-row.json
+codex/assets/images.json              # optional
+codex/assets/images/<sha256>.<ext>    # optional
 agent/restore.md
 safety/scan.json
 checksums.json
 ```
+
+Image asset files are present only when the Codex session references local
+images. During import, those images are written under
+`$CODEX_HOME/agent-capsule-assets/<new-thread-id>/images/`, and the imported
+session rewrites local image paths to that new location.
 
 The root `AGENT_README.md` exists so a receiving agent can inspect an ordinary
 zip file and understand how to restore it before installing anything.
@@ -190,7 +204,7 @@ zip file and understand how to restore it before installing anything.
 ## Safety model
 
 Capsules can contain sensitive conversation content, local paths, tool output,
-prompts, and accidental secrets.
+prompts, images or screenshots, and accidental secrets.
 
 Agent Capsule runs a best-effort secret scan during export and share. If it
 finds high-confidence secrets, export fails unless you explicitly pass:
@@ -201,6 +215,9 @@ finds high-confidence secrets, export fails unless you explicitly pass:
 
 Only use that flag when you have reviewed the capsule and intentionally want to
 share it.
+
+The secret scan covers session text. It does not OCR images or scan image
+pixels, so review screenshots and uploaded images before sharing.
 
 Link sharing uploads encrypted bytes, but anyone with the full URL including
 `#k=...` can decrypt the capsule.
