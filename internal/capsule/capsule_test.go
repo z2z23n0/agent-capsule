@@ -129,6 +129,28 @@ func TestRestoreDryRunAndExecute(t *testing.T) {
 	if summary := codex.SummarizeSession(content); summary.ID != result.ThreadID {
 		t.Fatalf("session_meta id = %q, want %q", summary.ID, result.ThreadID)
 	}
+	indexEntry := readIndexEntry(t, targetHome, result.ThreadID)
+	if got := indexEntry["thread_name"]; got != "[agent-capsule] Test Session" {
+		t.Fatalf("imported index title = %q", got)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(targetHome, "state_5.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var title, firstUserMessage, preview string
+	if err := db.QueryRow("select title, first_user_message, preview from threads where id = ?", result.ThreadID).Scan(&title, &firstUserMessage, &preview); err != nil {
+		t.Fatal(err)
+	}
+	if title != "[agent-capsule] Test Session" {
+		t.Fatalf("imported sqlite title = %q", title)
+	}
+	if firstUserMessage != "share this session" {
+		t.Fatalf("first user message was not preserved: %q", firstUserMessage)
+	}
+	if preview != "Test Session preview" {
+		t.Fatalf("preview was not preserved: %q", preview)
+	}
 }
 
 func TestRestoreImportsSameCapsuleTwiceAsNewThreads(t *testing.T) {
@@ -863,6 +885,28 @@ func appendJSONL(t *testing.T, path string, value any) {
 	if _, err := file.Write(append(payload, '\n')); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func readIndexEntry(t *testing.T, home, threadID string) map[string]any {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(home, "session_index.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry["id"] == threadID {
+			return entry
+		}
+	}
+	t.Fatalf("missing session index entry for %s", threadID)
+	return nil
 }
 
 func readZipFile(t *testing.T, path, name string) string {

@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	SessionIndexFile = "session_index.jsonl"
-	StateSQLiteFile  = "state_5.sqlite"
+	ImportedThreadTitlePrefix = "[agent-capsule] "
+	SessionIndexFile          = "session_index.jsonl"
+	StateSQLiteFile           = "state_5.sqlite"
 )
 
 type ExportData struct {
@@ -260,7 +261,8 @@ func RestoreThread(input RestoreInput, opts RestoreOptions) (*RestoreResult, err
 	}
 	targetInput := input
 	targetInput.ThreadID = targetThreadID
-	if err := upsertSessionIndex(home, targetThreadID, input.Title, input.IndexEntry); err != nil {
+	targetInput.Title = importedThreadTitle(input.Title, targetThreadID)
+	if err := upsertSessionIndex(home, targetThreadID, targetInput.Title, input.IndexEntry); err != nil {
 		return nil, err
 	}
 	if exists(filepath.Join(home, StateSQLiteFile)) {
@@ -510,12 +512,10 @@ func upsertSessionIndex(home, threadID, title string, source map[string]any) err
 		entry = map[string]any{}
 	}
 	entry["id"] = threadID
-	if stringValue(entry["thread_name"]) == "" {
-		if title == "" {
-			title = threadID
-		}
-		entry["thread_name"] = title
+	if title == "" {
+		title = threadID
 	}
+	entry["thread_name"] = title
 	entry["updated_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	replaced := false
 	for i := range entries {
@@ -770,12 +770,11 @@ func deriveSQLiteRow(input RestoreInput, targetSessionPath, targetCWD string, no
 	if _, ok := row["created_at_ms"]; !ok || row["created_at_ms"] == nil {
 		row["created_at_ms"] = toInt64(row["created_at"], nowUnix) * 1000
 	}
-	if stringValue(row["title"]) == "" {
-		row["title"] = input.Title
+	title := input.Title
+	if title == "" {
+		title = input.ThreadID
 	}
-	if stringValue(row["title"]) == "" {
-		row["title"] = input.ThreadID
-	}
+	row["title"] = title
 	defaults := map[string]any{
 		"source":             "imported",
 		"model_provider":     "openai",
@@ -798,6 +797,17 @@ func deriveSQLiteRow(input RestoreInput, targetSessionPath, targetCWD string, no
 		row["archived_at"] = nil
 	}
 	return row
+}
+
+func importedThreadTitle(title, threadID string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = threadID
+	}
+	if strings.HasPrefix(title, ImportedThreadTitlePrefix) {
+		return title
+	}
+	return ImportedThreadTitlePrefix + title
 }
 
 func knownSQLiteDefault(name string) (any, bool) {
