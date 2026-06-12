@@ -82,6 +82,16 @@ https://<worker-host>/s/<share-id>#k=<base64url-key>
 
 如果链接上传因为 endpoint 缺失、服务不可用或 quota 限制失败，Agent Capsule 会回退生成本地 `.capsule.zip`，并返回 `status: fallback_zip`。
 
+## 隐私承诺
+
+链接分享时，Agent Capsule 会先在本机加密胶囊再上传。托管服务、Worker、R2 bucket 或 S3 兼容 bucket 只会收到加密后的胶囊字节和加密后的预览 payload。没有 `#k=...` fragment key，这些服务无法解密会话内容。
+
+解密 key 在发送方机器上生成，只放在 URL fragment 里。正常浏览器请求不会把 URL fragment 发给服务端；CLI importer 在拉取 manifest 和 ciphertext 前也会先移除 fragment。
+
+服务端仍然可以看到并保存链接元数据，包括 thread id、thread title、创建和过期时间、密文字节数、密文 hash、bundle URL，以及请求相关的运行元数据。
+
+托管预览页会在浏览器里用 WebCrypto 解密 preview。如果你不信任页面托管方始终提供不会回传 key 的 JavaScript，请使用 CLI import 路径；它会直接拉取 manifest 和 ciphertext，并在本地解密。
+
 ## 官方服务、自建 Worker 和 S3
 
 `capsule share` 默认使用 `--service official`。本地开发时不要假设官方服务已经可用，可以显式配置：

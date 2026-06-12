@@ -93,6 +93,27 @@ If link upload fails because the endpoint is missing, unavailable, or over
 quota, Agent Capsule writes a local `.capsule.zip` fallback and returns
 `status: fallback_zip`.
 
+## Privacy commitments
+
+For link sharing, Agent Capsule encrypts the capsule locally before upload. The
+hosted service, Worker, R2 bucket, or S3-compatible bucket receives only the
+encrypted capsule bytes and encrypted preview payload. Without the `#k=...`
+fragment key, those services cannot decrypt the conversation content.
+
+The decryption key is generated on the sender's machine and placed only in the
+URL fragment. Normal browser requests do not send URL fragments to the server,
+and the CLI importer removes the fragment before fetching the manifest and
+ciphertext.
+
+The service can still see and store link metadata, including thread id, thread
+title, creation and expiry timestamps, ciphertext size, ciphertext hash, bundle
+URL, and operational request metadata.
+
+The hosted preview page decrypts the preview in the browser with WebCrypto. If
+you do not trust the page host to serve honest JavaScript, use the CLI import
+path instead; it fetches the manifest and ciphertext directly and decrypts
+locally.
+
 ## Official, Worker, and S3 sharing
 
 `capsule share` defaults to `--service official`. In local development, do not
