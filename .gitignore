@@ -1,5 +1,8 @@
 .ml-cache/
 .mainline/local.toml
+.codex/
+.claude/
+.cursor/
 .DS_Store
 .env
 .env.*
