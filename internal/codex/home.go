@@ -86,6 +86,7 @@ type RestoreResult struct {
 	TargetHome        string               `json:"target_home"`
 	TargetCWD         string               `json:"target_cwd"`
 	TargetSessionPath string               `json:"target_session_path"`
+	SidecarDir        string               `json:"sidecar_dir,omitempty"`
 	Images            *RestoreImageSummary `json:"images,omitempty"`
 	BackupDir         string               `json:"backup_dir,omitempty"`
 	Writes            []string             `json:"writes"`

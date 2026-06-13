@@ -15,12 +15,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/z2z23n0/agent-capsule/internal/claude"
 	"github.com/z2z23n0/agent-capsule/internal/codex"
+	"github.com/z2z23n0/agent-capsule/internal/neutral"
 )
 
 const (
 	SchemaVersion = 1
 	ArtifactType  = "agent-capsule"
+	AgentCodex    = "codex"
+	AgentClaude   = "claude"
 	DefaultRepo   = "https://github.com/z2z23n0/agent-capsule"
 	DefaultSkill  = DefaultRepo + "/tree/main/skills/agent-capsule"
 	InstallCmd    = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main"
@@ -37,9 +41,21 @@ var RequiredFiles = []string{
 	"checksums.json",
 }
 
+var ClaudeRequiredFiles = []string{
+	"manifest.json",
+	"AGENT_README.md",
+	"claude/session.jsonl",
+	"claude/session-index-entry.json",
+	"agent/neutral.json",
+	"agent/restore.md",
+	"safety/scan.json",
+	"checksums.json",
+}
+
 type Manifest struct {
 	SchemaVersion             int               `json:"schema_version"`
 	ArtifactType              string            `json:"artifact_type"`
+	SourceAgent               string            `json:"source_agent,omitempty"`
 	CreatedAt                 string            `json:"created_at"`
 	ThreadID                  string            `json:"thread_id"`
 	ThreadTitle               string            `json:"thread_title"`
@@ -54,7 +70,18 @@ type Manifest struct {
 	RestoreCommand            string            `json:"restore_command"`
 	Git                       map[string]string `json:"git,omitempty"`
 	Files                     []string          `json:"files"`
+	TargetSupport             []string          `json:"target_support,omitempty"`
+	Payloads                  []Payload         `json:"payloads,omitempty"`
+	LosslessLevel             string            `json:"lossless_level,omitempty"`
 	Notes                     []string          `json:"notes"`
+}
+
+type Payload struct {
+	Agent       string `json:"agent"`
+	Kind        string `json:"kind"`
+	Path        string `json:"path"`
+	Lossless    string `json:"lossless,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type ChecksumFile struct {
@@ -74,6 +101,7 @@ type SafetyFinding struct {
 }
 
 type ExportOptions struct {
+	SourceAgent          string
 	Home                 string
 	Thread               string
 	Out                  string
@@ -83,6 +111,7 @@ type ExportOptions struct {
 
 type ExportResult struct {
 	Status    string       `json:"status"`
+	Source    string       `json:"source_agent"`
 	Path      string       `json:"path"`
 	ThreadID  string       `json:"thread_id"`
 	Title     string       `json:"title"`
@@ -102,18 +131,33 @@ type InspectResult struct {
 }
 
 type loadedCapsule struct {
-	Manifest    Manifest
-	Session     []byte
-	IndexEntry  map[string]any
-	ThreadRow   map[string]any
-	Safety      SafetyScan
-	Images      ImageSummary
-	ImageAssets []imageAssetFile
-	Checksums   ChecksumFile
-	RawPayloads map[string][]byte
+	Manifest         Manifest
+	Session          []byte
+	IndexEntry       map[string]any
+	ThreadRow        map[string]any
+	Safety           SafetyScan
+	Images           ImageSummary
+	ImageAssets      []imageAssetFile
+	ClaudeSession    []byte
+	ClaudeIndexEntry map[string]any
+	Neutral          neutral.Transcript
+	Checksums        ChecksumFile
+	RawPayloads      map[string][]byte
 }
 
 func Export(opts ExportOptions) (*ExportResult, error) {
+	source := normalizeAgent(opts.SourceAgent, AgentCodex)
+	switch source {
+	case AgentCodex:
+		return exportCodex(opts)
+	case AgentClaude:
+		return exportClaude(opts)
+	default:
+		return nil, fmt.Errorf("unsupported source agent %q", opts.SourceAgent)
+	}
+}
+
+func exportCodex(opts ExportOptions) (*ExportResult, error) {
 	home, err := codex.ResolveHome(opts.Home)
 	if err != nil {
 		return nil, err
@@ -137,9 +181,10 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 		out = DefaultOutputName(opts.Name, data.Title, data.Summary.FirstUserText, data.ThreadID)
 	}
 	imageBundle := buildImageBundle(data)
-	manifest := buildManifest(data)
+	transcript := neutral.FromCodexSession(data.ThreadID, data.Title, data.SourceCWD, data.SessionBytes)
+	manifest := buildCodexManifest(data)
 	addImageFilesToManifest(&manifest, imageBundle)
-	files, err := buildFiles(manifest, data, scan, imageBundle)
+	files, err := buildCodexFiles(manifest, data, scan, imageBundle, transcript)
 	if err != nil {
 		return nil, err
 	}
@@ -155,11 +200,52 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 	info, _ := os.Stat(out)
 	return &ExportResult{
 		Status:    "ok",
+		Source:    AgentCodex,
 		Path:      out,
 		ThreadID:  data.ThreadID,
 		Title:     data.Title,
 		Safety:    scan,
 		Images:    imageBundle.summary(),
+		Bytes:     fileSize(info),
+		Checksums: "sha256",
+	}, nil
+}
+
+func exportClaude(opts ExportOptions) (*ExportResult, error) {
+	data, err := claude.ExportSession(claude.ExportOptions{Home: opts.Home, Session: opts.Thread})
+	if err != nil {
+		return nil, err
+	}
+	scan := ScanSecrets(data.SessionBytes)
+	if len(scan.Findings) > 0 && !opts.UnsafeIncludeSecrets {
+		return nil, fmt.Errorf("secret scan found %d finding(s); re-run with --unsafe-include-secrets only if this is intentional", len(scan.Findings))
+	}
+	out := opts.Out
+	if out == "" {
+		out = DefaultOutputName(opts.Name, data.Title, data.Summary.FirstUserText, data.SessionID)
+	}
+	manifest := buildClaudeManifest(data)
+	files, err := buildClaudeFiles(manifest, data, scan)
+	if err != nil {
+		return nil, err
+	}
+	checksums := buildChecksums(files)
+	checksumPayload, err := jsonBytes(checksums)
+	if err != nil {
+		return nil, err
+	}
+	files["checksums.json"] = checksumPayload
+	if err := writeZip(out, files); err != nil {
+		return nil, err
+	}
+	info, _ := os.Stat(out)
+	return &ExportResult{
+		Status:    "ok",
+		Source:    AgentClaude,
+		Path:      out,
+		ThreadID:  data.SessionID,
+		Title:     data.Title,
+		Safety:    scan,
 		Bytes:     fileSize(info),
 		Checksums: "sha256",
 	}, nil
@@ -263,10 +349,11 @@ func ScanSecrets(content []byte) SafetyScan {
 	return SafetyScan{Status: status, Findings: findings}
 }
 
-func buildManifest(data *codex.ExportData) Manifest {
+func buildCodexManifest(data *codex.ExportData) Manifest {
 	return Manifest{
 		SchemaVersion:             SchemaVersion,
 		ArtifactType:              ArtifactType,
+		SourceAgent:               AgentCodex,
 		CreatedAt:                 time.Now().UTC().Format(time.RFC3339Nano),
 		ThreadID:                  data.ThreadID,
 		ThreadTitle:               data.Title,
@@ -280,9 +367,16 @@ func buildManifest(data *codex.ExportData) Manifest {
 		InstallCommand:            InstallCmd,
 		RestoreCommand:            "capsule import <this-file>.capsule.zip --target codex --target-cwd . --execute",
 		Git:                       gitMetadata(data.ThreadRow),
-		Files:                     append([]string(nil), RequiredFiles...),
+		Files:                     append(append([]string(nil), RequiredFiles...), "agent/neutral.json"),
+		TargetSupport:             []string{AgentCodex, AgentClaude},
+		Payloads: []Payload{
+			{Agent: AgentCodex, Kind: "native-session", Path: "codex/session.jsonl", Lossless: "raw"},
+			{Agent: "neutral", Kind: "transcript", Path: "agent/neutral.json", Lossless: "semantic"},
+		},
+		LosslessLevel: "same-agent-raw cross-agent-semantic",
 		Notes: []string{
-			"v0.1 imports a Codex session from a local zip file as a new thread.",
+			"Imports a Codex session from a local zip file as a new thread.",
+			"Cross-agent imports preserve visible messages, tool evidence, and raw source sidecars.",
 			"It does not migrate auth, provider credentials, cloud state, or guarantee encrypted_content can continue cryptographically unchanged.",
 		},
 	}
@@ -296,7 +390,41 @@ func addImageFilesToManifest(manifest *Manifest, bundle imageBundle) {
 	manifest.Notes = append(manifest.Notes, "Image assets may include user-uploaded local image files referenced by this Codex session.")
 }
 
-func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan, imageBundle imageBundle) (map[string][]byte, error) {
+func buildClaudeManifest(data *claude.ExportData) Manifest {
+	files := append([]string(nil), ClaudeRequiredFiles...)
+	return Manifest{
+		SchemaVersion:             SchemaVersion,
+		ArtifactType:              ArtifactType,
+		SourceAgent:               AgentClaude,
+		CreatedAt:                 time.Now().UTC().Format(time.RFC3339Nano),
+		ThreadID:                  data.SessionID,
+		ThreadTitle:               data.Title,
+		SourceHome:                data.SourceHome,
+		SourceCWD:                 data.SourceCWD,
+		SourceSessionRelativePath: data.SourceSessionRelativePath,
+		SourceCLIVersion:          "claude-code",
+		SourceModelProvider:       "anthropic",
+		RepoURL:                   DefaultRepo,
+		SkillURL:                  DefaultSkill,
+		InstallCommand:            InstallCmd,
+		RestoreCommand:            "capsule import <this-file>.capsule.zip --target claude --target-cwd . --execute",
+		Git:                       claudeGitMetadata(data.Summary),
+		Files:                     files,
+		TargetSupport:             []string{AgentClaude, AgentCodex},
+		Payloads: []Payload{
+			{Agent: AgentClaude, Kind: "native-session", Path: "claude/session.jsonl", Lossless: "raw"},
+			{Agent: "neutral", Kind: "transcript", Path: "agent/neutral.json", Lossless: "semantic"},
+		},
+		LosslessLevel: "same-agent-raw cross-agent-semantic",
+		Notes: []string{
+			"Imports a Claude Code session into local Claude Code history as a new session.",
+			"Cross-agent imports preserve visible messages, tool evidence, and raw source sidecars.",
+			"It does not migrate auth, provider credentials, cloud state, or filesystem checkpoint state.",
+		},
+	}
+}
+
+func buildCodexFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan, imageBundle imageBundle, transcript neutral.Transcript) (map[string][]byte, error) {
 	manifestPayload, err := jsonBytes(manifest)
 	if err != nil {
 		return nil, err
@@ -313,12 +441,17 @@ func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan, imag
 	if err != nil {
 		return nil, err
 	}
+	neutralPayload, err := jsonBytes(transcript)
+	if err != nil {
+		return nil, err
+	}
 	files := map[string][]byte{
 		"manifest.json":          manifestPayload,
 		"AGENT_README.md":        []byte(agentReadme(manifest)),
 		"codex/session.jsonl":    data.SessionBytes,
 		"codex/index-entry.json": indexPayload,
 		"codex/thread-row.json":  threadPayload,
+		"agent/neutral.json":     neutralPayload,
 		"agent/restore.md":       []byte(restoreMarkdown(manifest, data.Summary)),
 		"safety/scan.json":       scanPayload,
 	}
@@ -333,6 +466,34 @@ func buildFiles(manifest Manifest, data *codex.ExportData, scan SafetyScan, imag
 		}
 	}
 	return files, nil
+}
+
+func buildClaudeFiles(manifest Manifest, data *claude.ExportData, scan SafetyScan) (map[string][]byte, error) {
+	manifestPayload, err := jsonBytes(manifest)
+	if err != nil {
+		return nil, err
+	}
+	indexPayload, err := jsonBytes(data.IndexEntry)
+	if err != nil {
+		return nil, err
+	}
+	neutralPayload, err := jsonBytes(data.Neutral)
+	if err != nil {
+		return nil, err
+	}
+	scanPayload, err := jsonBytes(scan)
+	if err != nil {
+		return nil, err
+	}
+	return map[string][]byte{
+		"manifest.json":                   manifestPayload,
+		"AGENT_README.md":                 []byte(agentReadme(manifest)),
+		"claude/session.jsonl":            data.SessionBytes,
+		"claude/session-index-entry.json": indexPayload,
+		"agent/neutral.json":              neutralPayload,
+		"agent/restore.md":                []byte(restoreMarkdownFromNeutral(manifest, data.Neutral)),
+		"safety/scan.json":                scanPayload,
+	}, nil
 }
 
 func buildChecksums(files map[string][]byte) ChecksumFile {
@@ -401,11 +562,6 @@ func load(path string) (*loadedCapsule, error) {
 		}
 		payloads[file.Name] = content
 	}
-	for _, name := range RequiredFiles {
-		if _, ok := payloads[name]; !ok {
-			return nil, fmt.Errorf("capsule missing required file %s", name)
-		}
-	}
 	var checksums ChecksumFile
 	if err := json.Unmarshal(payloads["checksums.json"], &checksums); err != nil {
 		return nil, err
@@ -420,34 +576,67 @@ func load(path string) (*loadedCapsule, error) {
 	if manifest.SchemaVersion != SchemaVersion || manifest.ArtifactType != ArtifactType {
 		return nil, fmt.Errorf("unsupported capsule schema/type: %d %s", manifest.SchemaVersion, manifest.ArtifactType)
 	}
-	var indexEntry map[string]any
-	if err := json.Unmarshal(payloads["codex/index-entry.json"], &indexEntry); err != nil {
-		return nil, err
-	}
-	var threadRow map[string]any
-	if err := json.Unmarshal(payloads["codex/thread-row.json"], &threadRow); err != nil {
-		return nil, err
-	}
+	sourceAgent := normalizeAgent(manifest.SourceAgent, AgentCodex)
 	var scan SafetyScan
 	if err := json.Unmarshal(payloads["safety/scan.json"], &scan); err != nil {
 		return nil, err
 	}
-	imageAssets, imageSummary, err := loadImageAssets(payloads)
-	if err != nil {
-		return nil, err
-	}
-	imageSummary = summarizeLoadedImages(payloads["codex/session.jsonl"], imageSummary)
-	return &loadedCapsule{
+	loaded := &loadedCapsule{
 		Manifest:    manifest,
-		Session:     payloads["codex/session.jsonl"],
-		IndexEntry:  indexEntry,
-		ThreadRow:   threadRow,
 		Safety:      scan,
-		Images:      imageSummary,
-		ImageAssets: imageAssets,
 		Checksums:   checksums,
 		RawPayloads: payloads,
-	}, nil
+	}
+	if payload, ok := payloads["agent/neutral.json"]; ok {
+		_ = json.Unmarshal(payload, &loaded.Neutral)
+	}
+	switch sourceAgent {
+	case AgentCodex:
+		for _, name := range RequiredFiles {
+			if _, ok := payloads[name]; !ok {
+				return nil, fmt.Errorf("capsule missing required file %s", name)
+			}
+		}
+		var indexEntry map[string]any
+		if err := json.Unmarshal(payloads["codex/index-entry.json"], &indexEntry); err != nil {
+			return nil, err
+		}
+		var threadRow map[string]any
+		if err := json.Unmarshal(payloads["codex/thread-row.json"], &threadRow); err != nil {
+			return nil, err
+		}
+		imageAssets, imageSummary, err := loadImageAssets(payloads)
+		if err != nil {
+			return nil, err
+		}
+		imageSummary = summarizeLoadedImages(payloads["codex/session.jsonl"], imageSummary)
+		loaded.Session = payloads["codex/session.jsonl"]
+		loaded.IndexEntry = indexEntry
+		loaded.ThreadRow = threadRow
+		loaded.Images = imageSummary
+		loaded.ImageAssets = imageAssets
+		if loaded.Neutral.Schema == "" {
+			loaded.Neutral = neutral.FromCodexSession(manifest.ThreadID, manifest.ThreadTitle, manifest.SourceCWD, loaded.Session)
+		}
+	case AgentClaude:
+		for _, name := range ClaudeRequiredFiles {
+			if _, ok := payloads[name]; !ok {
+				return nil, fmt.Errorf("capsule missing required file %s", name)
+			}
+		}
+		var indexEntry map[string]any
+		if err := json.Unmarshal(payloads["claude/session-index-entry.json"], &indexEntry); err != nil {
+			return nil, err
+		}
+		loaded.ClaudeSession = payloads["claude/session.jsonl"]
+		loaded.ClaudeIndexEntry = indexEntry
+		if loaded.Neutral.Schema == "" {
+			loaded.Neutral = neutral.FromClaudeSession(manifest.ThreadID, manifest.ThreadTitle, manifest.SourceCWD, loaded.ClaudeSession)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported capsule source agent %q", sourceAgent)
+	}
+	return loaded, nil
 }
 
 func verifyChecksums(payloads map[string][]byte, checksums ChecksumFile) error {
@@ -468,13 +657,14 @@ func verifyChecksums(payloads map[string][]byte, checksums ChecksumFile) error {
 }
 
 func agentReadme(manifest Manifest) string {
+	source := normalizeAgent(manifest.SourceAgent, AgentCodex)
 	return fmt.Sprintf(`# Agent Capsule
 
-This is a standard zip file for importing one Codex session into a local Codex UI as a new thread.
+This is a standard zip file for importing one %s session into a local coding agent history as a new session/thread.
 
 Start here:
 
-1. Read manifest.json, safety/scan.json, and codex/assets/images.json if present.
+1. Read manifest.json, safety/scan.json, and any agent-specific asset manifests if present.
 2. Install the CLI if it is missing:
 
    %s
@@ -487,7 +677,7 @@ Start here:
 
    %s
 
-5. Import into the current project when the user approves local Codex history writes:
+5. Import into the current project when the user approves local agent history writes:
 
    %s
 
@@ -496,18 +686,21 @@ Start here:
 Important boundaries:
 
 - Do not migrate auth, provider credentials, or secrets.
-- Only import after the user approves local Codex history writes; the recovery command above includes the required --execute flag.
+- Only import after the user approves local agent history writes; the recovery command above includes the required --execute flag.
 - Import always creates a new thread id, like a Codex session fork.
-- This capsule may include image assets referenced by the Codex session; inspect image counts before importing.
+- Cross-agent imports preserve visible messages, tool evidence, and raw source sidecars; they do not replay private runtime state.
+- This capsule may include image assets referenced by the source session; inspect image counts before importing.
 
-Thread: %s
+Source agent: %s
+Session/thread: %s
 Title: %s
-`, manifest.InstallCommand, manifest.SkillURL, manifest.RestoreCommand, manifest.ThreadID, manifest.ThreadTitle)
+`, source, manifest.InstallCommand, manifest.SkillURL, manifest.RestoreCommand, source, manifest.ThreadID, manifest.ThreadTitle)
 }
 
 func restoreMarkdown(manifest Manifest, summary codex.SessionSummary) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Restore Context\n\n")
+	fmt.Fprintf(&b, "- Source agent: `%s`\n", normalizeAgent(manifest.SourceAgent, AgentCodex))
 	fmt.Fprintf(&b, "- Source thread ID: `%s`\n", manifest.ThreadID)
 	fmt.Fprintf(&b, "- Title: %s\n", manifest.ThreadTitle)
 	fmt.Fprintf(&b, "- Source cwd: `%s`\n", manifest.SourceCWD)
@@ -533,6 +726,21 @@ func restoreMarkdown(manifest Manifest, summary codex.SessionSummary) string {
 	return b.String()
 }
 
+func restoreMarkdownFromNeutral(manifest Manifest, transcript neutral.Transcript) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Restore Context\n\n")
+	fmt.Fprintf(&b, "- Source agent: `%s`\n", normalizeAgent(manifest.SourceAgent, transcript.SourceAgent))
+	fmt.Fprintf(&b, "- Source session/thread ID: `%s`\n", manifest.ThreadID)
+	fmt.Fprintf(&b, "- Title: %s\n", manifest.ThreadTitle)
+	fmt.Fprintf(&b, "- Source cwd: `%s`\n", manifest.SourceCWD)
+	fmt.Fprintf(&b, "- Lossless level: `%s`\n", manifest.LosslessLevel)
+	fmt.Fprintf(&b, "\n## Continue\n\n")
+	fmt.Fprintf(&b, "After importing, open the new target-agent session. Same-agent imports preserve the raw transcript with a new id; cross-agent imports preserve visible messages, tool evidence, and a raw source sidecar.\n\n")
+	fmt.Fprintf(&b, "## Handoff Transcript\n\n%s\n\n", neutral.HandoffText(transcript, "target agent"))
+	fmt.Fprintf(&b, "## Recovery Command\n\n```bash\n%s\n```\n", manifest.RestoreCommand)
+	return b.String()
+}
+
 func gitMetadata(row map[string]any) map[string]string {
 	git := map[string]string{}
 	for _, key := range []string{"git_sha", "git_branch", "git_origin_url"} {
@@ -544,6 +752,13 @@ func gitMetadata(row map[string]any) map[string]string {
 		return nil
 	}
 	return git
+}
+
+func claudeGitMetadata(summary claude.SessionSummary) map[string]string {
+	if summary.GitBranch == "" {
+		return nil
+	}
+	return map[string]string{"git_branch": summary.GitBranch}
 }
 
 func jsonBytes(value any) ([]byte, error) {

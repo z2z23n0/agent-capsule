@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/z2z23n0/agent-capsule/internal/capsule"
-	"github.com/z2z23n0/agent-capsule/internal/codex"
+	"github.com/z2z23n0/agent-capsule/internal/claude"
 )
 
 func main() {
@@ -30,6 +30,8 @@ func run(args []string) error {
 		return runInspect(args[1:])
 	case "import", "restore":
 		return runImport(args[1:])
+	case "handoff":
+		return runHandoff(args[1:])
 	case "verify":
 		return runVerify(args[1:])
 	case "help", "-h", "--help":
@@ -42,8 +44,9 @@ func run(args []string) error {
 
 func runExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	source := fs.String("source", "codex", "source agent: codex or claude")
 	thread := fs.String("thread", "current", "thread id to export, or current")
-	home := fs.String("home", "", "source CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
+	home := fs.String("home", "", "source agent home (defaults to CODEX_HOME/~/.codex or CLAUDE_CONFIG_DIR/~/.claude)")
 	out := fs.String("out", "", "fallback/output .capsule.zip path")
 	name := fs.String("name", "", "capsule file name when --out is omitted")
 	format := fs.String("format", "link", "export format: link or zip")
@@ -62,6 +65,7 @@ func runExport(args []string) error {
 		return err
 	}
 	result, err := capsule.Share(capsule.ShareOptions{
+		SourceAgent:          *source,
 		Home:                 *home,
 		Thread:               *thread,
 		Out:                  *out,
@@ -104,10 +108,11 @@ func runInspect(args []string) error {
 
 func runImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
-	target := fs.String("target", "codex", "import target (only codex is supported in v0.1)")
-	home := fs.String("home", "", "target CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
-	targetCWD := fs.String("target-cwd", "", "target cwd for the imported Codex thread (defaults to current directory)")
-	execute := fs.Bool("execute", false, "write the imported thread into local Codex history")
+	target := fs.String("target", "codex", "import target: codex or claude")
+	home := fs.String("home", "", "target agent home (defaults to CODEX_HOME/~/.codex or CLAUDE_CONFIG_DIR/~/.claude)")
+	targetCWD := fs.String("target-cwd", "", "target cwd for the imported session/thread (defaults to current directory)")
+	execute := fs.Bool("execute", false, "write the imported session/thread into local agent history")
+	allowModelCall := fs.Bool("allow-model-call", false, "allow CLI fallback paths that may call a model")
 	capsulePath := ""
 	parseArgs := args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -125,13 +130,44 @@ func runImport(args []string) error {
 	} else if fs.NArg() != 0 {
 		return fmt.Errorf("usage: capsule import <file.capsule.zip> [--target codex] [--target-cwd .] [--execute]")
 	}
-	if *target != "codex" {
-		return fmt.Errorf("unsupported target %q: only codex is supported", *target)
+	result, err := capsule.ImportAny(capsulePath, capsule.ImportOptions{
+		Target:         *target,
+		Home:           *home,
+		TargetCWD:      *targetCWD,
+		Execute:        *execute,
+		AllowModelCall: *allowModelCall,
+	})
+	if err != nil {
+		return err
 	}
-	result, err := capsule.RestoreAny(capsulePath, codex.RestoreOptions{
-		Home:      *home,
-		TargetCWD: *targetCWD,
-		Execute:   *execute,
+	return printJSON(result)
+}
+
+func runHandoff(args []string) error {
+	fs := flag.NewFlagSet("handoff", flag.ExitOnError)
+	from := fs.String("from", "auto", "source agent: auto, codex, or claude")
+	to := fs.String("to", "", "target agent: codex or claude")
+	sourceThread := fs.String("source-thread", "current", "source session/thread id, or current")
+	sourceHome := fs.String("source-home", "", "source agent home")
+	targetHome := fs.String("target-home", "", "target agent home")
+	targetCWD := fs.String("target-cwd", "", "target cwd (defaults to current directory)")
+	execute := fs.Bool("execute", false, "write the handoff into local target agent history")
+	allowModelCall := fs.Bool("allow-model-call", false, "allow CLI fallback paths that may call a model")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *to == "" {
+		return fmt.Errorf("missing --to")
+	}
+	result, err := capsule.Handoff(capsule.HandoffOptions{
+		From:           *from,
+		To:             *to,
+		SourceHome:     *sourceHome,
+		TargetHome:     *targetHome,
+		SourceThread:   *sourceThread,
+		TargetCWD:      *targetCWD,
+		Execute:        *execute,
+		AllowModelCall: *allowModelCall,
 	})
 	if err != nil {
 		return err
@@ -141,8 +177,9 @@ func runImport(args []string) error {
 
 func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
-	home := fs.String("home", "", "target CODEX_HOME (defaults to CODEX_HOME or ~/.codex)")
-	thread := fs.String("thread", "", "thread id to verify")
+	target := fs.String("target", "codex", "target agent: codex or claude")
+	home := fs.String("home", "", "target agent home")
+	thread := fs.String("thread", "", "thread/session id to verify")
 	targetCWD := fs.String("target-cwd", "", "expected imported cwd")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -150,7 +187,16 @@ func runVerify(args []string) error {
 	if *thread == "" {
 		return fmt.Errorf("missing --thread")
 	}
-	result, err := capsule.Verify(*home, *thread, *targetCWD)
+	var result any
+	var err error
+	switch *target {
+	case "codex":
+		result, err = capsule.Verify(*home, *thread, *targetCWD)
+	case "claude":
+		result, err = claude.VerifySession(*home, *thread, *targetCWD)
+	default:
+		return fmt.Errorf("unsupported target %q", *target)
+	}
 	if err != nil {
 		return err
 	}
@@ -165,15 +211,20 @@ func printJSON(value any) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `capsule exports and imports local Codex session capsules.
+	fmt.Fprintln(os.Stderr, `capsule exports, imports, and hands off local coding-agent sessions.
 
 Usage:
-  capsule export --thread current
+  capsule export --source codex --thread current
+  capsule export --source claude --thread current --format zip
   capsule export --thread current --format zip --name "handoff topic"
   capsule export --thread current --service worker --endpoint https://example.workers.dev
   capsule export --thread current --service s3 --s3-endpoint https://<account>.r2.cloudflarestorage.com --s3-bucket agent-capsule --s3-public-base-url https://pub.example/capsules
   capsule inspect session.capsule.zip
   capsule import session.capsule.zip --target codex --target-cwd . --execute
+  capsule import session.capsule.zip --target claude --target-cwd . --execute
   capsule import "https://example.workers.dev/s/share-id#k=..." --target codex --target-cwd . --execute
-  capsule verify --home ~/.codex --thread <thread-id> --target-cwd .`)
+  capsule handoff --from codex --to claude --target-cwd . --execute
+  capsule handoff --from claude --to codex --target-cwd . --execute
+  capsule verify --target codex --home ~/.codex --thread <thread-id> --target-cwd .
+  capsule verify --target claude --home ~/.claude --thread <session-id> --target-cwd .`)
 }

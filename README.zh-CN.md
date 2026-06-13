@@ -1,8 +1,8 @@
 # Agent Capsule
 
-Agent Capsule 用来把一个 Codex 会话打包成可分享的胶囊。
+Agent Capsule 用来把本地 coding-agent 会话打包成可分享的胶囊，或者在同一台机器上做原生 handoff。
 
-你可以把本地 Codex thread 导出成标准 `.capsule.zip` 文件，或者导出成加密分享链接；接收方可以在自己的 Codex 里导入它，打开完整对话，并继续接着工作。
+你可以把本地 Codex thread 或 Claude Code session 导出成标准 `.capsule.zip` 文件，或者导出成加密分享链接；接收方可以导入到自己的 Codex 或 Claude Code 里，打开完整对话，并继续接着工作。同一台机器上可以用 `capsule handoff` 直接从一个 agent 的本地历史写入另一个 agent 的原生历史，不把 link 或 zip 作为交付产物。
 
 CLI 命令叫 `capsule`。
 
@@ -14,15 +14,15 @@ CLI 命令叫 `capsule`。
 
 你想完整地交接一段工作，例如未完成的 bug 定位，或是没写完的代码。
 
-Agent Capsule 会把这段会话打包成一个可检查、可导入的胶囊，让接收方不只是读一段聊天记录，而是能把它恢复到自己的 Codex 里继续用。
+Agent Capsule 会把这段会话打包成一个可检查、可导入的胶囊，让接收方不只是读一段聊天记录，而是能把它恢复到自己的 Codex 或 Claude Code 里继续用。
 
 ## 当前状态
 
-Agent Capsule 目前支持 Codex 的导出和导入。
+Agent Capsule 目前支持 Codex 和 Claude Code 的导出/导入，也支持 Codex <-> Claude Code 的跨 agent handoff。
 
 Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会打包任意非图片文件。
 
-后续会支持 Claude Code，以及跨 agent 的导出和导入。
+同源导入会创建新的原生 thread/session，永远不会覆盖源会话。跨 agent 导入会保留可见对话、工具证据、工作上下文，并把源 agent 的 raw transcript 写入 sidecar 供后续深挖；它不迁移 provider credential、登录态、云端状态、文件系统 checkpoint 或 agent 私有加密状态。
 
 ## 安装
 
@@ -33,17 +33,23 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 ## Agent Skill
 
 Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)。
-这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入，以及什么时候必须先问用户再写本地 Codex history。
+这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入、怎么执行本地 Codex <-> Claude Code handoff，以及什么时候必须先问用户再写本地 agent history。
 
 胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方
 agent 即使没有预装 skill，也能安装 CLI、检查、导入并验证新 thread。
 
 ## 快速开始：链接交接
 
-把当前 thread 导出成加密分享链接：
+把当前 Codex thread 导出成加密分享链接：
 
 ```bash
-capsule export --thread current
+capsule export --source codex --thread current
+```
+
+导出当前 Claude Code session：
+
+```bash
+capsule export --source claude --thread current
 ```
 
 默认导出格式是 `link`。链接格式类似：
@@ -62,10 +68,11 @@ https://<worker-host>/s/<share-id>#k=<base64url-key>
 
 ## 文件交接
 
-只有在你明确需要本地文件时，才把当前 thread 导出成 zip 胶囊：
+只有在你明确需要本地文件时，才把当前 session 导出成 zip 胶囊：
 
 ```bash
-capsule export --thread current --format zip --name "handoff topic"
+capsule export --source codex --thread current --format zip --name "handoff topic"
+capsule export --source claude --thread current --format zip --name "handoff topic"
 ```
 
 导入前先检查：
@@ -74,16 +81,35 @@ capsule export --thread current --format zip --name "handoff topic"
 capsule inspect handoff-topic.capsule.zip
 ```
 
-确认后写入本地 Codex：
+确认后写入本地 agent history：
 
 ```bash
 capsule import handoff-topic.capsule.zip --target codex --target-cwd . --execute
+capsule import handoff-topic.capsule.zip --target claude --target-cwd . --execute
 ```
 
 验证导入结果：
 
 ```bash
-capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
+capsule verify --target codex --home ~/.codex --thread <new-thread-id> --target-cwd .
+capsule verify --target claude --home ~/.claude --thread <new-session-id> --target-cwd .
+```
+
+## 本地快速 handoff
+
+同一台机器上的交接不需要生成 link 或 zip。`capsule handoff` 会读取源 agent 的本地历史，并直接写入一个新的目标原生 thread/session：
+
+```bash
+capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute
+capsule handoff --from claude --to codex --source-thread current --target-cwd . --execute
+```
+
+去掉 `--execute` 就是 dry-run。Local handoff 仍会运行 secret scan，但因为没有创建分享产物，高置信命中只作为 warning 返回，不阻断 handoff。
+
+如果直接写入 Claude Code history 还需要本地 Claude runtime 接手，结果里会给出精确 fallback 命令，例如：
+
+```bash
+cd "<target-cwd>" && claude --session-id <new-session-id>
 ```
 
 ## 隐私承诺
@@ -157,18 +183,25 @@ npm run deploy
 ```text
 manifest.json
 AGENT_README.md
-codex/session.jsonl
-codex/index-entry.json
-codex/thread-row.json
-codex/assets/images.json              # 可选
-codex/assets/images/<sha256>.<ext>    # 可选
+codex/session.jsonl                   # Codex 源胶囊
+codex/index-entry.json                 # Codex 源胶囊
+codex/thread-row.json                  # Codex 源胶囊
+codex/assets/images.json               # 可选 Codex 图片
+codex/assets/images/<sha256>.<ext>     # 可选 Codex 图片
+claude/session.jsonl                   # Claude 源胶囊
+claude/session-index-entry.json        # 可选 Claude index entry
+agent/neutral.json
 agent/restore.md
 safety/scan.json
 checksums.json
 ```
 
+`manifest.json` 会记录 `source_agent`、目标支持范围、payload 清单和 lossless level。缺少这些新字段的旧 Codex 胶囊仍按 Codex legacy capsule 导入。
+
 只有当 Codex session 引用了本地图片时，胶囊里才会出现图片资产。导入时，这些图片会写到
 `$CODEX_HOME/agent-capsule-assets/<new-thread-id>/images/`，并且导入后的 session 会把本地图片路径重写到这个新位置。
+
+跨 agent 导入还会在目标 agent home 下写入 raw source sidecar，例如 `$CODEX_HOME/agent-capsule-sources/<new-thread-id>/` 或 `$CLAUDE_CONFIG_DIR/agent-capsule-sources/<new-session-id>/`。
 
 根目录的 `AGENT_README.md` 是给接收方 agent 看的入口。即使它还没安装 `capsule`，也可以先用普通 zip 工具解压，读说明，再决定是否导入。
 

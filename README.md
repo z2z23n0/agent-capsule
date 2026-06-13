@@ -1,10 +1,14 @@
 # Agent Capsule
 
-Agent Capsule turns a Codex session into a shareable capsule.
+Agent Capsule turns a local coding-agent session into a shareable capsule or a
+native same-machine handoff.
 
-You can export a local Codex thread as a standard `.capsule.zip` file, or as an
-encrypted share link. The receiver can import it into their own Codex setup,
-open the full conversation, and continue the work.
+You can export a local Codex or Claude Code session as a standard
+`.capsule.zip` file, or as an encrypted share link. The receiver can import it
+into Codex or Claude Code, open the full conversation, and continue the work.
+On the same machine, `capsule handoff` writes directly from one agent's local
+history into the other agent's native history without producing a link or zip as
+the user-facing artifact.
 
 The CLI command is `capsule`.
 
@@ -19,17 +23,22 @@ Sometimes you want to hand off unfinished work: a bug investigation that is not
 done yet, or code that is only halfway through.
 
 Agent Capsule packages that session into an inspectable, importable capsule so
-the receiver gets more than a chat transcript. They can restore it into Codex
-and keep working from there.
+the receiver gets more than a chat transcript. They can restore it into Codex or
+Claude Code and keep working from there.
 
 ## Status
 
-Agent Capsule currently supports Codex export and import.
+Agent Capsule currently supports Codex and Claude Code export/import, plus
+Codex <-> Claude Code cross-agent handoff.
 
 Codex image uploads referenced by a session are preserved. Agent Capsule does
 not package arbitrary non-image files yet.
 
-Claude Code support and cross-agent export/import are planned next.
+Same-agent imports create a new native session/thread and never overwrite the
+source. Cross-agent imports preserve the visible transcript, tool evidence,
+working context, and a raw source sidecar for later inspection. They do not
+migrate provider credentials, login state, cloud state, filesystem checkpoints,
+or private encrypted agent state.
 
 ## Install
 
@@ -42,8 +51,8 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 Agents can optionally install the Agent Capsule skill from
 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md). The skill teaches the
 agent when to install the CLI, how to export or share a session, how to import
-after inspection and explicit approval, and when to ask before writing local
-Codex history.
+after inspection and explicit approval, how to perform local Codex <-> Claude
+Code handoffs, and when to ask before writing local agent history.
 
 Capsule files and links do not depend on the skill. They include agent-facing
 bootstrap instructions so a receiving agent can still install the CLI, inspect,
@@ -51,10 +60,16 @@ import, and verify the restored thread.
 
 ## Quick start: link handoff
 
-Export the current thread as an encrypted share link:
+Export the current Codex thread as an encrypted share link:
 
 ```bash
-capsule export --thread current
+capsule export --source codex --thread current
+```
+
+Export the current Claude Code session instead:
+
+```bash
+capsule export --source claude --thread current
 ```
 
 The default export format is `link`. A share link looks like this:
@@ -80,11 +95,12 @@ Capsule writes a local `.capsule.zip` fallback and returns
 
 ## File handoff
 
-Export the current thread as a local zip capsule only when you explicitly need a
-file:
+Export the current session as a local zip capsule only when you explicitly need
+a file:
 
 ```bash
-capsule export --thread current --format zip --name "handoff topic"
+capsule export --source codex --thread current --format zip --name "handoff topic"
+capsule export --source claude --thread current --format zip --name "handoff topic"
 ```
 
 Inspect the capsule before importing:
@@ -93,16 +109,40 @@ Inspect the capsule before importing:
 capsule inspect handoff-topic.capsule.zip
 ```
 
-Write the imported thread into your local Codex home:
+Write the imported thread/session into local agent history:
 
 ```bash
 capsule import handoff-topic.capsule.zip --target codex --target-cwd . --execute
+capsule import handoff-topic.capsule.zip --target claude --target-cwd . --execute
 ```
 
-Verify the imported thread:
+Verify the imported thread/session:
 
 ```bash
-capsule verify --home ~/.codex --thread <new-thread-id> --target-cwd .
+capsule verify --target codex --home ~/.codex --thread <new-thread-id> --target-cwd .
+capsule verify --target claude --home ~/.claude --thread <new-session-id> --target-cwd .
+```
+
+## Local fast handoff
+
+For same-machine handoffs, avoid creating a link or zip. `capsule handoff`
+reads the source agent's local history and writes a new native target
+thread/session directly:
+
+```bash
+capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute
+capsule handoff --from claude --to codex --source-thread current --target-cwd . --execute
+```
+
+Use dry-run by omitting `--execute`. Local handoff still runs the secret scan,
+but high-confidence findings are reported as warnings instead of blocking,
+because no share artifact is created.
+
+When writing Claude Code history directly is not enough for the local Claude
+runtime, the result includes a precise fallback command such as:
+
+```bash
+cd "<target-cwd>" && claude --session-id <new-session-id>
 ```
 
 ## Privacy commitments
@@ -189,20 +229,31 @@ A `.capsule.zip` contains:
 ```text
 manifest.json
 AGENT_README.md
-codex/session.jsonl
-codex/index-entry.json
-codex/thread-row.json
-codex/assets/images.json              # optional
-codex/assets/images/<sha256>.<ext>    # optional
+codex/session.jsonl                   # Codex source capsules
+codex/index-entry.json                 # Codex source capsules
+codex/thread-row.json                  # Codex source capsules
+codex/assets/images.json               # optional Codex images
+codex/assets/images/<sha256>.<ext>     # optional Codex images
+claude/session.jsonl                   # Claude source capsules
+claude/session-index-entry.json        # optional Claude index entry
+agent/neutral.json
 agent/restore.md
 safety/scan.json
 checksums.json
 ```
 
+`manifest.json` records `source_agent`, target support, payload inventory, and
+the lossless level. Legacy Codex capsules without those fields still import as
+Codex capsules.
+
 Image asset files are present only when the Codex session references local
 images. During import, those images are written under
 `$CODEX_HOME/agent-capsule-assets/<new-thread-id>/images/`, and the imported
 session rewrites local image paths to that new location.
+
+Cross-agent imports also write a raw source sidecar under the target agent home,
+for example `$CODEX_HOME/agent-capsule-sources/<new-thread-id>/` or
+`$CLAUDE_CONFIG_DIR/agent-capsule-sources/<new-session-id>/`.
 
 The root `AGENT_README.md` exists so a receiving agent can inspect an ordinary
 zip file and understand how to restore it before installing anything.

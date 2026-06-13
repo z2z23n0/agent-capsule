@@ -86,6 +86,7 @@ type LinkServiceInfo struct {
 }
 
 type ShareOptions struct {
+	SourceAgent          string
 	Home                 string
 	Thread               string
 	Out                  string
@@ -111,6 +112,7 @@ type S3Options struct {
 type ShareResult struct {
 	Status      string       `json:"status"`
 	Service     string       `json:"service"`
+	Source      string       `json:"source_agent,omitempty"`
 	ShareURL    string       `json:"share_url,omitempty"`
 	ManifestURL string       `json:"manifest_url,omitempty"`
 	ExpiresAt   string       `json:"expires_at,omitempty"`
@@ -157,6 +159,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 	}
 	if format == ZipShareFormat {
 		result, err := Export(ExportOptions{
+			SourceAgent:          opts.SourceAgent,
 			Home:                 opts.Home,
 			Thread:               opts.Thread,
 			Out:                  opts.Out,
@@ -169,6 +172,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 		return &ShareResult{
 			Status:   "zip",
 			Service:  "zip",
+			Source:   result.Source,
 			Path:     result.Path,
 			ThreadID: result.ThreadID,
 			Title:    result.Title,
@@ -188,6 +192,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 	defer os.RemoveAll(tempDir)
 	tempZip := filepath.Join(tempDir, "session.capsule.zip")
 	exported, err := Export(ExportOptions{
+		SourceAgent:          opts.SourceAgent,
 		Home:                 opts.Home,
 		Thread:               opts.Thread,
 		Out:                  tempZip,
@@ -231,6 +236,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 		return &ShareResult{
 			Status:   "fallback_zip",
 			Service:  service,
+			Source:   exported.Source,
 			Fallback: err.Error(),
 			Path:     fallbackPath,
 			ThreadID: exported.ThreadID,
@@ -247,6 +253,7 @@ func Share(opts ShareOptions) (*ShareResult, error) {
 	return &ShareResult{
 		Status:      "ok",
 		Service:     service,
+		Source:      exported.Source,
 		ShareURL:    shareURL,
 		ManifestURL: manifestURL,
 		ExpiresAt:   expiresAt,
@@ -319,6 +326,8 @@ func RestoreFromURL(rawURL string, opts codex.RestoreOptions) (*codex.RestoreRes
 
 func buildLinkManifest(exported *ExportResult, enc encryptedCapsule, service string) LinkManifest {
 	createdAt := time.Now().UTC()
+	target := normalizeAgent(exported.Source, AgentCodex)
+	importCommand := fmt.Sprintf("capsule import \"<this-url>\" --target %s --target-cwd . --execute", target)
 	return LinkManifest{
 		Schema:    LinkSchema,
 		CreatedAt: createdAt.Format(time.RFC3339Nano),
@@ -337,9 +346,9 @@ func buildLinkManifest(exported *ExportResult, enc encryptedCapsule, service str
 		},
 		Import: LinkImport{
 			Tool:           "capsule",
-			Command:        "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
+			Command:        importCommand,
 			InstallCommand: InstallCmd,
-			ExecuteCommand: "capsule import \"<this-url>\" --target codex --target-cwd . --execute",
+			ExecuteCommand: importCommand,
 			DocsURL:        DefaultRepo,
 			SkillURL:       DefaultSkill,
 		},
