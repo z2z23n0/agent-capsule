@@ -237,6 +237,32 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.equal(manifestJSON.import.skill_url, "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule");
 });
 
+test("share page prefers preview turn duration metadata", async () => {
+  const env = fakeEnv();
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  assert.equal(upload.status, 201);
+  const created = await upload.json();
+  const html = await (await worker.fetch(new Request(created.share_url), env)).text();
+  const label = runSharePageFunction(html, ["processedLabel", "durationFromEntries", "formatDurationMillis", "formatDuration"], "processedLabel(entries)", {
+    entries: [
+      { duration_ms: 287253, timestamp: "2026-06-12T00:00:00.100Z" },
+      { timestamp: "2026-06-12T00:00:00.200Z" }
+    ]
+  });
+  assert.equal(label, "已处理 4m 47s");
+
+  const fallback = runSharePageFunction(html, ["processedLabel", "durationFromEntries", "formatDurationMillis", "formatDuration"], "processedLabel(entries)", {
+    entries: [
+      { timestamp: "2026-06-12T00:00:00.100Z" },
+      { timestamp: "2026-06-12T00:00:00.200Z" }
+    ]
+  });
+  assert.equal(fallback, "已处理 1s");
+});
+
 test("max blob size blocks upload", async () => {
   const env = fakeEnv({ MAX_BLOB_BYTES: "2" });
   const response = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
@@ -366,6 +392,34 @@ function fakeEnv(vars = {}) {
     get: () => ({ fetch: (input, init) => instance.fetch(new Request(input, init)) })
   };
   return env;
+}
+
+function runSharePageFunction(html, functionNames, expression, args = {}) {
+  const source = sharePageScript(html);
+  const body = functionNames.map((name) => extractFunction(source, name)).join("\n") + "\nreturn " + expression + ";";
+  return Function(...Object.keys(args), body)(...Object.values(args));
+}
+
+function sharePageScript(html) {
+  const match = String(html || "").match(/<script>([\s\S]*)<\/script>\s*<\/body>/);
+  assert.ok(match, "missing share page script");
+  return match[1];
+}
+
+function extractFunction(source, name) {
+  const needle = "function " + name + "(";
+  const start = source.indexOf(needle);
+  assert.notEqual(start, -1, "missing client function " + name);
+  let depth = 0;
+  for (let i = start; i < source.length; i += 1) {
+    const char = source[i];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  assert.fail("unterminated client function " + name);
 }
 
 class FakeBucket {

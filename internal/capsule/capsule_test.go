@@ -508,12 +508,14 @@ func TestPreviewTranscriptIncludesMessagesAndToolSummaries(t *testing.T) {
 		CreatedAt:   "2026-06-12T00:00:00Z",
 	}
 	session := strings.Join([]string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_preview"}}`,
 		`{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"please inspect"}]}}`,
 		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_1","arguments":"{\"cmd\":\"rg TODO\"}","status":"completed"}}`,
 		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"line 1\nline 2\n"}}`,
 		`{"timestamp":"2026-06-12T00:00:04Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call_2","input":"*** Begin Patch\n..."}}`,
 		`{"timestamp":"2026-06-12T00:00:05Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_2","output":"Success"}}`,
 		`{"timestamp":"2026-06-12T00:00:06Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:07Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_preview","duration_ms":287253}}`,
 	}, "\n") + "\n"
 	transcript := buildPreviewTranscript(manifest, []byte(session))
 	if transcript.MessageCount != 2 {
@@ -536,6 +538,12 @@ func TestPreviewTranscriptIncludesMessagesAndToolSummaries(t *testing.T) {
 	}
 	if strings.Contains(transcript.Entries[1].InputPreview, "line 1") {
 		t.Fatal("tool output leaked into input preview instead of output field")
+	}
+	if transcript.Entries[1].DurationMS != 287253 {
+		t.Fatalf("tool duration_ms = %d", transcript.Entries[1].DurationMS)
+	}
+	if transcript.Entries[3].DurationMS != 287253 {
+		t.Fatalf("assistant duration_ms = %d", transcript.Entries[3].DurationMS)
 	}
 }
 

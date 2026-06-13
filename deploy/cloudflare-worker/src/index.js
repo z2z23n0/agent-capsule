@@ -1351,19 +1351,36 @@ function toolPanelNode(entry) {
 }
 
 function processedLabel(entries) {
-  const duration = formatDuration(entries[0] && entries[0].timestamp, entries[entries.length - 1] && entries[entries.length - 1].timestamp);
+  const duration = durationFromEntries(entries);
   return duration ? "已处理 " + duration : "已处理";
+}
+
+function durationFromEntries(entries) {
+  const list = entries || [];
+  let durationMS = 0;
+  for (const entry of list) {
+    const value = Number(entry && entry.duration_ms || 0);
+    if (Number.isFinite(value) && value > durationMS) durationMS = value;
+  }
+  if (durationMS > 0) return formatDurationMillis(durationMS);
+  return formatDuration(list[0] && list[0].timestamp, list[list.length - 1] && list[list.length - 1].timestamp);
+}
+
+function formatDurationMillis(value) {
+  const milliseconds = Number(value || 0);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "";
+  const seconds = Math.max(1, Math.round(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes <= 0) return rest + "s";
+  return minutes + "m " + String(rest).padStart(2, "0") + "s";
 }
 
 function formatDuration(start, end) {
   const first = Date.parse(start || "");
   const last = Date.parse(end || "");
   if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return "";
-  const seconds = Math.max(1, Math.round((last - first) / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  if (minutes <= 0) return rest + "s";
-  return minutes + "m " + String(rest).padStart(2, "0") + "s";
+  return formatDurationMillis(last - first);
 }
 
 function toolGroupSummary(entries) {
