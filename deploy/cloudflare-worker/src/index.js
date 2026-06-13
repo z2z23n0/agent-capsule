@@ -486,7 +486,7 @@ function sharePageHTML(request, manifest, id) {
       <header class="preview-header">
         <p class="preview-kicker">Capsule preview</p>
         <h1 id="page-title">${escapeHTML(title)}</h1>
-        <p class="preview-subtitle">这里默认先显示轻量预览；也可以在本页加载完整可见 transcript，或交给 agent 导入到原生 UI 继续。</p>
+        <p class="preview-subtitle">这里会先解密轻量预览；只有预览被截断或旧链接没有预览时，才在本页提供完整可见对话内容加载入口。也可以交给 agent 导入到原生 UI 继续。</p>
         <p class="preview-meta" aria-live="polite">
           <span id="counts">正在等待预览</span>
           <span id="expires-at">加密链接</span>
@@ -494,7 +494,7 @@ function sharePageHTML(request, manifest, id) {
         <hr class="preview-rule">
         <p id="status" class="status">正在读取这个链接里的加密预览。</p>
         <div id="full-transcript-actions" class="preview-actions" hidden>
-          <button id="load-full-transcript" class="secondary-action" type="button">加载完整会话</button>
+          <button id="load-full-transcript" class="secondary-action" type="button">加载完整对话内容</button>
           <span id="full-transcript-status" class="preview-action-status" aria-live="polite"></span>
         </div>
       </header>
@@ -629,6 +629,9 @@ button, a { font: inherit; }
   gap: 10px 14px;
   margin-top: 18px;
 }
+.preview-actions[hidden] {
+  display: none;
+}
 .secondary-action {
   min-height: 38px;
   border: 1px solid var(--line-strong);
@@ -651,6 +654,9 @@ button, a { font: inherit; }
   cursor: progress;
   opacity: .68;
   transform: none;
+}
+.secondary-action[hidden] {
+  display: none;
 }
 .preview-action-status {
   color: var(--muted);
@@ -1158,6 +1164,7 @@ const fenceMarker = String.fromCharCode(96, 96, 96);
 let activeManifest = null;
 let activeKey = "";
 let activeTranscriptSource = "";
+let activeFullTranscriptLoaded = false;
 
 function fullShareURL() {
   return location.origin + location.pathname + location.search + location.hash;
@@ -1806,35 +1813,73 @@ function appendInlineToken(parent, token) {
 function configureFullTranscriptAction(manifest, keyText) {
   activeManifest = manifest;
   activeKey = keyText || "";
+  activeFullTranscriptLoaded = false;
+  setFullTranscriptAction("hidden");
+}
+
+function setFullTranscriptAction(state, detail = {}) {
   const action = $("full-transcript-actions");
+  const button = $("load-full-transcript");
   const status = $("full-transcript-status");
-  if (!action || !manifest || !manifest.bundle || !manifest.bundle.url || !activeKey) return;
+  if (!action || !button || !status) return;
+  const canLoad = activeManifest && activeManifest.bundle && activeManifest.bundle.url && activeKey;
+  if (!canLoad || state === "hidden") {
+    action.hidden = true;
+    button.hidden = false;
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.textContent = "加载完整对话内容";
+    status.textContent = "";
+    return;
+  }
   action.hidden = false;
-  status.textContent = manifest.bundle.bytes ? "完整包 " + formatBytes(manifest.bundle.bytes) : "";
+  if (state === "loading") {
+    button.hidden = false;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "加载中";
+    status.textContent = detail.status || "正在下载、校验并解密完整 capsule...";
+    return;
+  }
+  if (state === "loaded") {
+    button.hidden = true;
+    button.disabled = true;
+    button.removeAttribute("aria-busy");
+    button.textContent = "加载完整对话内容";
+    status.textContent = detail.status || "完整可见对话内容已加载。";
+    return;
+  }
+  button.hidden = false;
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+  button.textContent = "加载完整对话内容";
+  status.textContent = detail.status || (activeManifest.bundle.bytes ? "完整包 " + formatBytes(activeManifest.bundle.bytes) : "");
 }
 
 async function loadFullTranscript() {
-  const button = $("load-full-transcript");
-  const status = $("full-transcript-status");
-  if (!activeManifest || !activeKey) return;
-  button.disabled = true;
-  const old = button.textContent;
+  if (!activeManifest || !activeKey || activeFullTranscriptLoaded) return;
   try {
-    button.textContent = "加载中";
-    status.textContent = "正在下载、校验并解密完整 capsule...";
+    setFullTranscriptAction("loading", { status: "正在下载、校验并解密完整 capsule..." });
     const plainZip = await decryptBundle(activeManifest, activeKey);
-    status.textContent = "正在解包并读取原生 transcript...";
+    setFullTranscriptAction("loading", { status: "正在解包并读取原生对话内容..." });
     const files = await unzipFiles(plainZip);
     const transcript = await transcriptFromCapsuleFiles(files);
     renderTranscript(transcript, { complete: true });
-    status.textContent = sourceLabel(transcript.source) + " 原生 transcript 已完整加载。";
-    setStatus("完整可见 transcript 已在浏览器本地解密并渲染；内部上下文和不可见状态仍会被过滤。", "success");
+    activeFullTranscriptLoaded = true;
+    setFullTranscriptAction("loaded", { status: sourceLabel(transcript.source) + " 原生对话内容已完整加载。" });
+    setStatus("完整可见对话内容已在浏览器本地解密并渲染；内部上下文和不可见状态仍会被过滤。", "success");
   } catch (error) {
-    button.disabled = false;
-    button.textContent = old;
-    status.textContent = error && error.message ? error.message : String(error);
-    setStatus("完整会话加载失败：" + status.textContent, "error");
+    const message = error && error.message ? error.message : String(error);
+    setFullTranscriptAction("available", { status: message });
+    setStatus("完整会话加载失败：" + message, "error");
   }
+}
+
+function previewNeedsFullTranscript(transcript) {
+  if (!transcript || transcript.truncated) return true;
+  return (transcript.entries || []).some((entry) => {
+    return Boolean(entry && (entry.truncated || Number(entry.omitted_images || 0) > 0));
+  });
 }
 
 function sourceLabel(source) {
@@ -1915,7 +1960,7 @@ async function transcriptFromCapsuleFiles(files) {
   if (files.has("agent/neutral.json")) return neutralTranscriptFromFile(files.get("agent/neutral.json"));
   if (files.has("codex/session.jsonl")) return codexTranscriptFromSession(files.get("codex/session.jsonl"), manifest, imageAssets);
   if (files.has("claude/session.jsonl")) return claudeTranscriptFromSession(files.get("claude/session.jsonl"), manifest);
-  throw new Error("完整 capsule 里没有可网页展示的 transcript；旧 capsule 请用 agent import。");
+  throw new Error("完整 capsule 里没有可网页展示的对话内容；旧 capsule 请用 agent import。");
 }
 
 function codexTranscriptFromSession(bytes, manifest, imageAssets) {
@@ -2353,7 +2398,8 @@ async function boot() {
     configureFullTranscriptAction(manifest, key);
     if (!manifest.preview) {
       $("counts").textContent = "旧版链接";
-      setStatus("这个链接没有轻量预览；如果带有 #k，可以点击加载完整会话，或用 agent import。", "warn");
+      if (key) setFullTranscriptAction("available");
+      setStatus("这个链接没有轻量预览；如果带有 #k，可以点击加载完整对话内容，或用 agent import。", "warn");
       return;
     }
     if (!key) {
@@ -2362,11 +2408,14 @@ async function boot() {
       return;
     }
     const transcript = await decryptPreview(manifest.preview, key);
-    renderTranscript(transcript);
-    if (transcript.truncated) {
-      setStatus("预览已在浏览器本地解密，但内容已截断。可以点击加载完整会话查看完整可见 transcript。", "warn");
+    const needsFullTranscript = previewNeedsFullTranscript(transcript);
+    renderTranscript(transcript, { complete: !needsFullTranscript });
+    if (needsFullTranscript) {
+      setFullTranscriptAction("available");
+      setStatus("预览已在浏览器本地解密，但可见内容仍有截断。可以加载完整可见对话内容。", "warn");
     } else {
-      setStatus("预览已在浏览器本地解密。需要完整可见 transcript 时，可以点击加载完整会话。", "success");
+      setFullTranscriptAction("hidden");
+      setStatus("完整可见对话内容已在浏览器本地解密并渲染。", "success");
     }
   } catch (error) {
     $("counts").textContent = "预览不可用";
