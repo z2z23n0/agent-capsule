@@ -180,10 +180,11 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.equal(page.status, 200);
   const html = await page.text();
   assert.match(html, /Capsule preview/);
-  assert.match(html, /这里默认先显示轻量预览/);
-  assert.match(html, /加载完整会话/);
+  assert.match(html, /完整可见对话内容加载入口/);
+  assert.match(html, /加载完整对话内容/);
   assert.match(html, /预览已在浏览器本地解密/);
-  assert.match(html, /内容已截断/);
+  assert.match(html, /可见内容仍有截断/);
+  assert.match(html, /完整可见对话内容已在浏览器本地解密并渲染/);
   assert.match(html, /FOR AGENTS/);
   assert.match(html, /Restore in Codex/);
   assert.match(html, /share-layout/);
@@ -198,6 +199,8 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.match(html, /function decryptBundle/);
   assert.match(html, /function unzipFiles/);
   assert.match(html, /async function transcriptFromCapsuleFiles/);
+  assert.match(html, /function previewNeedsFullTranscript/);
+  assert.match(html, /function setFullTranscriptAction/);
   assert.match(html, /function codexTranscriptFromSession/);
   assert.match(html, /function claudeTranscriptFromSession/);
   assert.match(html, /function neutralTranscriptFromFile/);
@@ -261,6 +264,36 @@ test("share page prefers preview turn duration metadata", async () => {
     ]
   });
   assert.equal(fallback, "已处理 1s");
+});
+
+test("share page only offers full transcript when preview is incomplete", async () => {
+  const env = fakeEnv();
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  const created = await upload.json();
+  const html = await (await worker.fetch(new Request(created.share_url), env)).text();
+
+  const complete = runSharePageFunction(html, ["previewNeedsFullTranscript"], "previewNeedsFullTranscript(transcript)", {
+    transcript: { entries: [{ kind: "message", role: "user", text: "hello" }] }
+  });
+  assert.equal(complete, false);
+
+  const truncated = runSharePageFunction(html, ["previewNeedsFullTranscript"], "previewNeedsFullTranscript(transcript)", {
+    transcript: { truncated: true, entries: [] }
+  });
+  assert.equal(truncated, true);
+
+  const clippedEntry = runSharePageFunction(html, ["previewNeedsFullTranscript"], "previewNeedsFullTranscript(transcript)", {
+    transcript: { entries: [{ kind: "tool", truncated: true }] }
+  });
+  assert.equal(clippedEntry, true);
+
+  const omittedImage = runSharePageFunction(html, ["previewNeedsFullTranscript"], "previewNeedsFullTranscript(transcript)", {
+    transcript: { entries: [{ kind: "message", omitted_images: 1 }] }
+  });
+  assert.equal(omittedImage, true);
 });
 
 test("share link serves agent-readable resources while browsers still get html", async () => {
