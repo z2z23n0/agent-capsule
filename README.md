@@ -7,8 +7,7 @@ You can export a local Codex or Claude Code session as a standard
 `.capsule.zip` file, or as an encrypted share link. The receiver can import it
 into Codex or Claude Code, open the full conversation, and continue the work.
 On the same machine, `capsule handoff` writes directly from one agent's local
-history into the other agent's native history without producing a link or zip as
-the user-facing artifact.
+history into the other agent's native history.
 
 The CLI command is `capsule`.
 
@@ -34,11 +33,11 @@ Codex <-> Claude Code cross-agent handoff.
 Codex image uploads referenced by a session are preserved. Agent Capsule does
 not package arbitrary non-image files yet.
 
-Same-agent imports create a new native session/thread and never overwrite the
-source. Cross-agent imports preserve the visible transcript, tool evidence,
-working context, and a raw source sidecar for later inspection. They do not
-migrate provider credentials, login state, cloud state, filesystem checkpoints,
-or private encrypted agent state.
+Same-agent imports create a new native session/thread. Cross-agent imports
+preserve the visible transcript, tool evidence, working context, and a raw
+source sidecar for later inspection. They do not migrate provider credentials,
+login state, cloud state, filesystem checkpoints, or private encrypted agent
+state.
 
 ## Install
 
@@ -52,7 +51,7 @@ Agents can optionally install the Agent Capsule skill from
 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md). The skill teaches the
 agent when to install the CLI, how to export or share a session, how to import
 after inspection and explicit approval, how to perform local Codex <-> Claude
-Code handoffs, and when to ask before writing local agent history.
+Code handoffs.
 
 Capsule files and links do not depend on the skill. They include agent-facing
 bootstrap instructions so a receiving agent can still install the CLI, inspect,
@@ -125,9 +124,8 @@ capsule verify --target claude --home ~/.claude --thread <new-session-id> --targ
 
 ## Local fast handoff
 
-For same-machine handoffs, avoid creating a link or zip. `capsule handoff`
-reads the source agent's local history and writes a new native target
-thread/session directly:
+For same-machine handoffs, `capsule handoff` reads the source agent's local
+history and writes a new native target thread/session directly:
 
 ```bash
 capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute

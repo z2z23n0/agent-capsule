@@ -2,7 +2,7 @@
 
 Agent Capsule 用来把本地 coding-agent 会话打包成可分享的胶囊，或者在同一台机器上做原生 handoff。
 
-你可以把本地 Codex thread 或 Claude Code session 导出成标准 `.capsule.zip` 文件，或者导出成加密分享链接；接收方可以导入到自己的 Codex 或 Claude Code 里，打开完整对话，并继续接着工作。同一台机器上可以用 `capsule handoff` 直接从一个 agent 的本地历史写入另一个 agent 的原生历史，不把 link 或 zip 作为交付产物。
+你可以把本地 Codex thread 或 Claude Code session 导出成标准 `.capsule.zip` 文件，或者导出成加密分享链接；接收方可以导入到自己的 Codex 或 Claude Code 里，打开完整对话，并继续接着工作。同一台机器上可以用 `capsule handoff` 直接从一个 agent 的本地历史写入另一个 agent 的原生历史。
 
 CLI 命令叫 `capsule`。
 
@@ -22,7 +22,7 @@ Agent Capsule 目前支持 Codex 和 Claude Code 的导出/导入，也支持 Co
 
 Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会打包任意非图片文件。
 
-同源导入会创建新的原生 thread/session，永远不会覆盖源会话。跨 agent 导入会保留可见对话、工具证据、工作上下文，并把源 agent 的 raw transcript 写入 sidecar 供后续深挖；它不迁移 provider credential、登录态、云端状态、文件系统 checkpoint 或 agent 私有加密状态。
+同源导入会创建新的原生 thread/session。跨 agent 导入会保留可见对话、工具证据、工作上下文，并把源 agent 的 raw transcript 写入 sidecar 供后续深挖；它不迁移 provider credential、登录态、云端状态、文件系统 checkpoint 或 agent 私有加密状态。
 
 ## 安装
 
@@ -33,7 +33,7 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 ## Agent Skill
 
 Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)。
-这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入、怎么执行本地 Codex <-> Claude Code handoff，以及什么时候必须先问用户再写本地 agent history。
+这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入、怎么执行本地 Codex <-> Claude Code handoff。
 
 胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方
 agent 即使没有预装 skill，也能安装 CLI、检查、导入并验证新 thread。
@@ -97,7 +97,7 @@ capsule verify --target claude --home ~/.claude --thread <new-session-id> --targ
 
 ## 本地快速 handoff
 
-同一台机器上的交接不需要生成 link 或 zip。`capsule handoff` 会读取源 agent 的本地历史，并直接写入一个新的目标原生 thread/session：
+同一台机器上的交接可以用 `capsule handoff` 读取源 agent 的本地历史，并直接写入一个新的目标原生 thread/session：
 
 ```bash
 capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute
