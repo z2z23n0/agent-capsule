@@ -32,7 +32,7 @@ test("anonymous upload/download happy path", async () => {
 
   const caps = await worker.fetch(new Request(BASE_URL + "/v1/capabilities"), env);
   assert.equal(caps.status, 200);
-  assert.equal((await caps.json()).max_blob_bytes, 8 * 1024 * 1024);
+  assert.equal((await caps.json()).max_blob_bytes, 32 * 1024 * 1024);
 });
 
 test("configured BYO token gates uploads but not public reads", async () => {
