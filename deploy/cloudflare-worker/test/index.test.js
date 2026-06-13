@@ -180,17 +180,29 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.equal(page.status, 200);
   const html = await page.text();
   assert.match(html, /Capsule preview/);
-  assert.match(html, /这里是可读预览，不是完整原生线程/);
-  assert.match(html, /预览已在浏览器本地解密。页面内容只是预览/);
+  assert.match(html, /这里默认先显示轻量预览/);
+  assert.match(html, /加载完整会话/);
+  assert.match(html, /预览已在浏览器本地解密/);
+  assert.match(html, /内容已截断/);
   assert.match(html, /FOR AGENTS/);
   assert.match(html, /Restore in Codex/);
   assert.match(html, /share-layout/);
   assert.match(html, /agents-panel/);
   assert.match(html, /agents-card/);
+  assert.match(html, /preview-actions/);
+  assert.match(html, /id="load-full-transcript"/);
   assert.match(html, /codex-thread/);
   assert.match(html, /turn-process/);
   assert.match(html, /tool-group/);
   assert.match(html, /tool-action/);
+  assert.match(html, /function decryptBundle/);
+  assert.match(html, /function unzipFiles/);
+  assert.match(html, /async function transcriptFromCapsuleFiles/);
+  assert.match(html, /function codexTranscriptFromSession/);
+  assert.match(html, /function claudeTranscriptFromSession/);
+  assert.match(html, /function neutralTranscriptFromFile/);
+  assert.match(html, /files\.has\("agent\/neutral\.json"\)/);
+  assert.match(html, /旧 capsule 请用 agent import/);
   assert.match(html, /function turnProcessNode/);
   assert.match(html, /function toolGroupNode/);
   assert.match(html, /function toolActionNode/);
@@ -206,12 +218,14 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.doesNotMatch(html, /id="dry-run-command"/);
   assert.match(html, /<span>Import<\/span>/);
   assert.match(html, /id="execute-command"/);
-  assert.doesNotMatch(html, /这个预览被截断了/);
   assert.doesNotMatch(html, /restore-drawer/);
   assert.doesNotMatch(html, /agent-restore/);
   assert.match(html, /application\/agent-capsule\+json/);
   assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
   assert.match(html, /skills\/agent-capsule/);
+  const pageScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  assert.equal(pageScripts.length, 1);
+  assert.doesNotThrow(() => new Function(pageScripts[0][1]));
 
   const jsonResponse = await worker.fetch(new Request(created.share_url, {
     headers: { accept: "application/json" }
