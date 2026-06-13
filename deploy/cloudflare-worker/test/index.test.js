@@ -263,6 +263,67 @@ test("share page prefers preview turn duration metadata", async () => {
   assert.equal(fallback, "已处理 1s");
 });
 
+test("share link serves agent-readable resources while browsers still get html", async () => {
+  const env = fakeEnv();
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  assert.equal(upload.status, 201);
+  const created = await upload.json();
+
+  const browserResponse = await worker.fetch(new Request(created.share_url, {
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "user-agent": "Mozilla/5.0"
+    }
+  }), env);
+  assert.equal(browserResponse.status, 200);
+  assert.match(browserResponse.headers.get("content-type"), /^text\/html/);
+  const browserHTML = await browserResponse.text();
+  assert.match(browserHTML, /FOR AGENTS/);
+  assert.match(browserHTML, /rel="alternate" type="application\/agent-capsule\+json"/);
+  assert.match(browserHTML, /rel="alternate" type="text\/markdown"/);
+
+  const markdownResponse = await worker.fetch(new Request(created.share_url, {
+    headers: { accept: "text/markdown" }
+  }), env);
+  assert.equal(markdownResponse.status, 200);
+  assert.equal(markdownResponse.headers.get("content-type"), "text/markdown; charset=utf-8");
+  assert.equal(markdownResponse.headers.get("vary"), "Accept, User-Agent");
+  const markdownText = await markdownResponse.text();
+  assert.match(markdownText, /^# Agent Capsule handoff/);
+  assert.match(markdownText, /Use the original URL exactly as provided by the user/);
+  assert.match(markdownText, /The server cannot see or return that fragment/);
+  assert.match(markdownText, /capsule import "<original-url-with-#k>" --target codex --target-cwd \. --execute/);
+  assert.doesNotMatch(markdownText, /<!doctype html/i);
+
+  const curlResponse = await worker.fetch(new Request(created.share_url, {
+    headers: {
+      accept: "*/*",
+      "user-agent": "curl/8.7.1"
+    }
+  }), env);
+  assert.equal(curlResponse.headers.get("content-type"), "text/markdown; charset=utf-8");
+
+  const negotiatedManifest = await worker.fetch(new Request(created.share_url, {
+    headers: { accept: "application/agent-capsule+json" }
+  }), env);
+  assert.equal(negotiatedManifest.status, 200);
+  assert.equal(negotiatedManifest.headers.get("content-type"), "application/agent-capsule+json; charset=utf-8");
+  assert.equal(negotiatedManifest.headers.get("vary"), "Accept, User-Agent");
+  assert.equal((await negotiatedManifest.json()).schema, "agent-capsule.link.v1");
+
+  const agentJSON = await worker.fetch(new Request(created.share_url + ".agent.json"), env);
+  assert.equal(agentJSON.status, 200);
+  assert.equal(agentJSON.headers.get("content-type"), "application/agent-capsule+json; charset=utf-8");
+  assert.equal((await agentJSON.json()).import.execute_command, "capsule import \"<this-url>\" --target codex --target-cwd . --execute");
+
+  const agentMarkdown = await worker.fetch(new Request(created.share_url + ".agent.md"), env);
+  assert.equal(agentMarkdown.status, 200);
+  assert.match(await agentMarkdown.text(), /Manifest URL: `https:\/\/capsule\.example\/v1\/shares\//);
+});
+
 test("max blob size blocks upload", async () => {
   const env = fakeEnv({ MAX_BLOB_BYTES: "2" });
   const response = await worker.fetch(new Request(BASE_URL + "/v1/shares", {

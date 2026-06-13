@@ -4,6 +4,9 @@ const DEFAULT_INSTALL_COMMAND = "go install github.com/z2z23n0/agent-capsule/cmd
 const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
 const DEFAULT_SKILL_URL = "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule";
 const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";
+const AGENT_MANIFEST_CONTENT_TYPE = "application/agent-capsule+json; charset=utf-8";
+const AGENT_MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
+const SHARE_VARY = "Accept, User-Agent";
 const SHARE_ID_BYTES = 12;
 const SHARE_ID_MAX_ATTEMPTS = 5;
 const STORAGE_ID_BYTES = 12;
@@ -182,6 +185,8 @@ export default {
       if (v1Share && request.method === "GET") {
         return v1Share[2] ? await getBlob(env, v1Share[1]) : await getManifest(env, v1Share[1]);
       }
+      const agentShare = url.pathname.match(/^\/s\/([A-Za-z0-9_-]+)\.agent\.(json|md)$/);
+      if (agentShare && request.method === "GET") return await shareAgentResource(request, env, agentShare[1], agentShare[2]);
       const pageShare = url.pathname.match(/^\/s\/([A-Za-z0-9_-]+)$/);
       if (pageShare && request.method === "GET") return await sharePage(request, env, pageShare[1]);
       return json({ ok: false, error: "not_found" }, 404);
@@ -286,9 +291,19 @@ async function sharePage(request, env, id) {
   const result = await gateJSON(env, "/share", { id });
   if (!result.ok) return html("Agent Capsule link unavailable", 404);
   const manifest = manifestForResponse(result.share.manifest);
-  const accept = request.headers.get("accept") || "";
-  if (accept.includes("application/json")) return json(manifest);
-  return htmlDocument(sharePageHTML(request, manifest, id));
+  const kind = shareResponseKind(request);
+  if (kind === "agent-json") return withShareVary(jsonContent(manifest, AGENT_MANIFEST_CONTENT_TYPE));
+  if (kind === "json") return withShareVary(json(manifest));
+  if (kind === "markdown") return withShareVary(markdown(agentHandoffMarkdown(request, manifest, id)));
+  return withShareVary(htmlDocument(sharePageHTML(request, manifest, id)));
+}
+
+async function shareAgentResource(request, env, id, format) {
+  const result = await gateJSON(env, "/share", { id });
+  if (!result.ok) return format === "json" ? json({ ok: false, error: result.error }, result.status || 404) : markdown("Agent Capsule link unavailable\n", result.status || 404);
+  const manifest = manifestForResponse(result.share.manifest);
+  if (format === "json") return jsonContent(manifest, AGENT_MANIFEST_CONTENT_TYPE);
+  return markdown(agentHandoffMarkdown(request, manifest, id));
 }
 
 function manifestForResponse(manifest) {
@@ -314,13 +329,91 @@ function quoteThisURL(command) {
   return text.replaceAll("<this-url>", "\"<this-url>\"");
 }
 
+function shareResponseKind(request) {
+  const accept = request.headers.get("accept") || "";
+  if (accepts(accept, "application/agent-capsule+json")) return "agent-json";
+  if (accepts(accept, "application/json")) return "json";
+  if (accepts(accept, "text/markdown")) return "markdown";
+  if (looksLikeCommandLineClient(request) && !accepts(accept, "text/html")) return "markdown";
+  return "html";
+}
+
+function accepts(header, mediaType) {
+  return String(header || "").split(",").some((part) => {
+    const type = part.trim().split(";")[0].toLowerCase();
+    return type === mediaType;
+  });
+}
+
+function looksLikeCommandLineClient(request) {
+  const ua = request.headers.get("user-agent") || "";
+  return /\bcurl\/|wget\/|httpie|python-requests|go-http-client|node-fetch|undici/i.test(ua);
+}
+
+function agentHandoffMarkdown(request, manifest, id) {
+  const url = new URL(request.url);
+  const shareURL = url.origin + "/s/" + id;
+  const manifestURL = url.origin + "/v1/shares/" + id;
+  const thread = objectValue(manifest.thread);
+  const cryptoInfo = objectValue(manifest.crypto);
+  const bundle = objectValue(manifest.bundle);
+  const importInfo = objectValue(manifest.import);
+  const originalURL = "<original-url-with-#k>";
+  const executeCommand = String(importInfo.execute_command || importInfo.command || DEFAULT_EXECUTE_COMMAND).replaceAll("<this-url>", originalURL);
+  const lines = [
+    "# Agent Capsule handoff",
+    "",
+    "This URL is an encrypted Agent Capsule share. It is meant to be imported locally, not expanded into this chat.",
+    "",
+    "## Capsule",
+    "- Title: " + markdownInline(thread.title || "Untitled session"),
+    "- Source thread: " + markdownCode(thread.id || "unknown"),
+    "- Share URL: " + markdownCode(shareURL),
+    "- Manifest URL: " + markdownCode(manifestURL),
+    "- Key reference: " + markdownCode(cryptoInfo.key_ref || "url-fragment:k"),
+    "- Crypto: " + markdownCode(cryptoInfo.alg || "AES-256-GCM"),
+    "- Encrypted bundle bytes: " + markdownCode(bundle.bytes || 0)
+  ];
+  if (manifest.expires_at) lines.push("- Expires at: " + markdownCode(manifest.expires_at));
+  lines.push(
+    "",
+    "## Agent instructions",
+    "1. Use the original URL exactly as provided by the user, including the `#k=...` fragment. The server cannot see or return that fragment.",
+    "2. Do not ask the user to paste the full transcript into chat.",
+    "3. Install the importer if needed:",
+    "",
+    "```bash",
+    String(importInfo.install_command || DEFAULT_INSTALL_COMMAND),
+    "```",
+    "",
+    "4. Import the complete capsule as a new native Codex thread:",
+    "",
+    "```bash",
+    executeCommand,
+    "```",
+    "",
+    "5. After import, continue from the newly created local thread/session."
+  );
+  return lines.join("\n") + "\n";
+}
+
+function markdownInline(value) {
+  return String(value || "").replace(/\s+/g, " ").trim() || "unknown";
+}
+
+function markdownCode(value) {
+  return "`" + String(value == null ? "" : value).replace(/`/g, "\\`").replace(/\s+/g, " ").trim() + "`";
+}
+
 function sharePageHTML(request, manifest, id) {
   const url = new URL(request.url);
   const title = manifest.thread && manifest.thread.title ? manifest.thread.title : "Agent Capsule";
+  const shareURL = url.origin + "/s/" + id;
+  const manifestURL = url.origin + "/v1/shares/" + id;
   const metadata = {
     schema: "agent-capsule.share-page.v1",
-    share_url: url.origin + "/s/" + id,
-    manifest_url: url.origin + "/v1/shares/" + id,
+    share_url: shareURL,
+    manifest_url: manifestURL,
     key_ref: "url-fragment:k",
     import: manifest.import
   };
@@ -330,6 +423,8 @@ function sharePageHTML(request, manifest, id) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHTML(title)} - Agent Capsule preview</title>
+  <link rel="alternate" type="application/agent-capsule+json" href="${escapeHTML(manifestURL)}">
+  <link rel="alternate" type="text/markdown" href="${escapeHTML(shareURL + ".agent.md")}">
   <style>${sharePageCSS()}</style>
 </head>
 <body>
@@ -2384,6 +2479,25 @@ function json(value, status = 200) {
     status,
     headers: { "content-type": "application/json" }
   }));
+}
+
+function jsonContent(value, contentType, status = 200) {
+  return cors(new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": contentType }
+  }));
+}
+
+function markdown(value, status = 200) {
+  return cors(new Response(value, {
+    status,
+    headers: { "content-type": AGENT_MARKDOWN_CONTENT_TYPE }
+  }));
+}
+
+function withShareVary(response) {
+  response.headers.set("vary", SHARE_VARY);
+  return response;
 }
 
 function html(value, status = 200) {
