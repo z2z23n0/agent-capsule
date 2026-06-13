@@ -1722,18 +1722,18 @@ async function timingSafeTokenEqual(provided, expected) {
 }
 
 function readLimits(env) {
-  const maxBlobBytes = envInt(env, "MAX_BLOB_BYTES", 8 * 1024 * 1024);
-  const maxManifestBytes = envInt(env, "MAX_MANIFEST_BYTES", 3 * 1024 * 1024);
+  const maxBlobBytes = envInt(env, "MAX_BLOB_BYTES", 32 * 1024 * 1024);
+  const maxManifestBytes = envInt(env, "MAX_MANIFEST_BYTES", 8 * 1024 * 1024);
   return {
     maxBlobBytes,
     maxManifestBytes,
-    maxPreviewPayloadBytes: envInt(env, "MAX_PREVIEW_PAYLOAD_BYTES", 2 * 1024 * 1024),
+    maxPreviewPayloadBytes: envInt(env, "MAX_PREVIEW_PAYLOAD_BYTES", 6 * 1024 * 1024),
     maxRequestBytes: envInt(env, "MAX_REQUEST_BYTES", maxBlobBytes + maxManifestBytes + 64 * 1024),
     maxShareBytes: envInt(env, "MAX_SHARE_BYTES", maxBlobBytes + maxManifestBytes),
     maxTitleChars: envInt(env, "MAX_TITLE_CHARS", 180),
     maxThreadIDChars: envInt(env, "MAX_THREAD_ID_CHARS", 128),
     maxTtlSeconds: envInt(env, "MAX_TTL_SECONDS", 24 * 60 * 60),
-    maxDownloadsPerShare: envInt(env, "MAX_DOWNLOADS_PER_SHARE", 3),
+    maxDownloadsPerShare: envInt(env, "MAX_DOWNLOADS_PER_SHARE", 10),
     liveBytesLimit: envInt(env, "LIVE_BYTES_LIMIT", 4 * GB),
     monthlyGbDaysLimit: envInt(env, "MONTHLY_GB_DAYS_LIMIT", 120),
     monthlyPutLimit: envInt(env, "MONTHLY_PUT_LIMIT", 100000),
