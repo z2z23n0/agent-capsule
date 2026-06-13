@@ -47,6 +47,7 @@ type PreviewEntry struct {
 	InputPreview  string         `json:"input_preview,omitempty"`
 	Output        string         `json:"output,omitempty"`
 	OutputBytes   int            `json:"output_bytes,omitempty"`
+	DurationMS    int64          `json:"duration_ms,omitempty"`
 	Truncated     bool           `json:"truncated,omitempty"`
 }
 
@@ -111,6 +112,7 @@ func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAs
 		CreatedAt: manifest.CreatedAt,
 	}
 	pendingTools := map[string]int{}
+	turnStart := -1
 	imageState := &previewImageState{
 		Assets:        previewImageAssets(assets),
 		MaxImages:     maxPreviewImages,
@@ -129,7 +131,18 @@ func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAs
 		}
 		timestamp := previewString(item["timestamp"])
 		payload, _ := item["payload"].(map[string]any)
-		if previewString(item["type"]) != "response_item" {
+		switch previewString(item["type"]) {
+		case "event_msg":
+			switch previewString(payload["type"]) {
+			case "task_started":
+				turnStart = len(transcript.Entries)
+			case "task_complete":
+				markPreviewTurnDuration(&transcript, turnStart, previewInt64(payload["duration_ms"]))
+				turnStart = -1
+			}
+			continue
+		case "response_item":
+		default:
 			continue
 		}
 		switch previewString(payload["type"]) {
@@ -199,6 +212,15 @@ func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAs
 		}
 	}
 	return transcript
+}
+
+func markPreviewTurnDuration(transcript *PreviewTranscript, start int, durationMS int64) {
+	if durationMS <= 0 || start < 0 || start >= len(transcript.Entries) {
+		return
+	}
+	for i := start; i < len(transcript.Entries); i++ {
+		transcript.Entries[i].DurationMS = durationMS
+	}
 }
 
 func attachPreviewSkill(transcript *PreviewTranscript, skill PreviewSkill) {
@@ -409,6 +431,22 @@ func previewString(value any) string {
 		return strings.TrimSpace(text)
 	}
 	return ""
+}
+
+func previewInt64(value any) int64 {
+	switch v := value.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	default:
+		return 0
+	}
 }
 
 func previewHiddenMessage(text string) bool {
