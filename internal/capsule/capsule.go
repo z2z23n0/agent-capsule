@@ -122,7 +122,9 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := codex.ExportThread(home, threadID)
+	data, err := codex.ExportThreadWithOptions(home, threadID, codex.ExportThreadOptions{
+		DropSelfExportTurn: shouldDropSelfExportTurn(opts.Thread, threadID),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +163,19 @@ func Export(opts ExportOptions) (*ExportResult, error) {
 		Bytes:     fileSize(info),
 		Checksums: "sha256",
 	}, nil
+}
+
+func shouldDropSelfExportTurn(requested, resolved string) bool {
+	requested = strings.TrimSpace(requested)
+	if requested == "" || requested == "current" {
+		return true
+	}
+	for _, key := range []string{"CODEX_THREAD_ID", "CODEX_SESSION_ID"} {
+		if os.Getenv(key) == resolved && requested == resolved {
+			return true
+		}
+	}
+	return false
 }
 
 func Inspect(path string) (*InspectResult, error) {

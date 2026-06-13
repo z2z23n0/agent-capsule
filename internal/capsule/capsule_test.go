@@ -502,6 +502,97 @@ func TestExportWritesOnlyActiveSessionBranch(t *testing.T) {
 	}
 }
 
+func TestExportKeepsCurrentTurnWithoutSelfExport(t *testing.T) {
+	clearCurrentThreadEnv(t)
+	home := createFakeCodexHomeWithSession(t, rolledBackSession(testThreadID))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: "current", Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	if !strings.Contains(session, "keep current request") {
+		t.Fatalf("export missing non-export current turn:\n%s", session)
+	}
+}
+
+func TestExportDropsOpenSelfExportTurn(t *testing.T) {
+	clearCurrentThreadEnv(t)
+	home := createFakeCodexHomeWithSession(t, selfExportSession(testThreadID, false))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: "current", Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	if !strings.Contains(session, "keep first request") {
+		t.Fatalf("export dropped prior conversation:\n%s", session)
+	}
+	for _, dropped := range []string{"导出一下这个 session", "capsule export --thread current", "self export ready"} {
+		if strings.Contains(session, dropped) {
+			t.Fatalf("self-export turn leaked %q:\n%s", dropped, session)
+		}
+	}
+}
+
+func TestExportDropsCompletedSelfExportTurn(t *testing.T) {
+	clearCurrentThreadEnv(t)
+	home := createFakeCodexHomeWithSession(t, selfExportSession(testThreadID, true))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: "current", Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	if strings.Contains(session, "导出一下这个 session") || strings.Contains(session, "capsule export --thread current") {
+		t.Fatalf("completed self-export turn leaked:\n%s", session)
+	}
+}
+
+func TestExportKeepsMixedWorkAndSelfExportTurn(t *testing.T) {
+	clearCurrentThreadEnv(t)
+	home := createFakeCodexHomeWithSession(t, mixedWorkAndSelfExportSession(testThreadID))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: "current", Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	for _, want := range []string{"先改代码再导出这个 session", "apply_patch", "capsule export --thread current"} {
+		if !strings.Contains(session, want) {
+			t.Fatalf("mixed turn missing %q:\n%s", want, session)
+		}
+	}
+}
+
+func TestExportKeepsExplicitOtherThreadExportTurn(t *testing.T) {
+	clearCurrentThreadEnv(t)
+	home := createFakeCodexHomeWithSession(t, otherThreadExportSession(testThreadID))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: "current", Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	if !strings.Contains(session, "capsule export --thread 019e0000-0000-7000-8000-000000000123") {
+		t.Fatalf("other-thread export turn was dropped:\n%s", session)
+	}
+}
+
+func TestExportKeepsSearchMentioningSelfExportCommand(t *testing.T) {
+	clearCurrentThreadEnv(t)
+	home := createFakeCodexHomeWithSession(t, searchMentioningSelfExportSession(testThreadID))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: "current", Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	if !strings.Contains(session, "turn_search") || !strings.Contains(session, "call_search") {
+		t.Fatalf("search-only turn was dropped:\n%s", session)
+	}
+}
+
+func clearCurrentThreadEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CODEX_THREAD_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "")
+}
+
 func TestExportDropsOpenTurnRolledBackWithPreviousTurn(t *testing.T) {
 	home := createFakeCodexHomeWithSession(t, openTurnRolledBackSession(testThreadID))
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")
@@ -1019,6 +1110,67 @@ func openTurnRolledBackSession(threadID string) string {
 		`{"timestamp":"2026-06-12T00:00:12Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep final request"}]}}`,
 		`{"timestamp":"2026-06-12T00:00:13Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"keep final answer"}]}}`,
 		`{"timestamp":"2026-06-12T00:00:14Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_keep_final","duration_ms":1}}`,
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func selfExportSession(threadID string, complete bool) string {
+	lines := []string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + threadID + `","timestamp":"2026-06-12T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_keep_first"}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep first request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"keep first answer"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_keep_first","duration_ms":1}}`,
+		`{"timestamp":"2026-06-12T00:00:05Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_self_export"}}`,
+		`{"timestamp":"2026-06-12T00:00:06Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"[$agent-capsule](/Users/me/.codex/skills/agent-capsule/SKILL.md) 导出一下这个 session"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:07Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>agent-capsule</name>\n<path>/Users/me/.codex/skills/agent-capsule/SKILL.md</path>\n</skill>"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:08Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"我会导出当前 session。"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:09Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_skill","arguments":"{\"cmd\":\"sed -n '1,120p' /Users/me/.codex/skills/agent-capsule/SKILL.md\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:10Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_skill","output":"skill text"}}`,
+		`{"timestamp":"2026-06-12T00:00:11Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_which","arguments":"{\"cmd\":\"command -v capsule\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:12Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_which","output":"/Users/me/.local/bin/capsule"}}`,
+		`{"timestamp":"2026-06-12T00:00:13Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_export","arguments":"{\"cmd\":\"capsule export --thread current\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:14Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_export","output":"self export ready"}}`,
+		`{"timestamp":"2026-06-12T00:00:15Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"导出了。"}]}}`,
+	}
+	if complete {
+		lines = append(lines, `{"timestamp":"2026-06-12T00:00:16Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_self_export","duration_ms":1}}`)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func mixedWorkAndSelfExportSession(threadID string) string {
+	lines := []string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + threadID + `","timestamp":"2026-06-12T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_mixed"}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"先改代码再导出这个 session"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"apply_patch","call_id":"call_patch","arguments":"*** Begin Patch\n*** End Patch\n"}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_patch","output":"Success"}}`,
+		`{"timestamp":"2026-06-12T00:00:05Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_export","arguments":"{\"cmd\":\"capsule export --thread current\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:06Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_export","output":"exported"}}`,
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func otherThreadExportSession(threadID string) string {
+	otherThreadID := "019e0000-0000-7000-8000-000000000123"
+	lines := []string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + threadID + `","timestamp":"2026-06-12T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_other_export"}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"导出另一个 thread"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_export","arguments":"{\"cmd\":\"capsule export --thread ` + otherThreadID + `\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_export","output":"exported"}}`,
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func searchMentioningSelfExportSession(threadID string) string {
+	lines := []string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + threadID + `","timestamp":"2026-06-12T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_search"}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"查一下怎么导出这个 session"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_search","arguments":"{\"cmd\":\"rg \\\"capsule export --thread current\\\" README.md\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_search","output":"README.md:capsule export --thread current"}}`,
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

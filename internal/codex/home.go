@@ -69,6 +69,10 @@ type RestoreImageAsset struct {
 	Content    []byte
 }
 
+type ExportThreadOptions struct {
+	DropSelfExportTurn bool
+}
+
 type RestoreOptions struct {
 	Home      string
 	TargetCWD string
@@ -157,6 +161,10 @@ func ResolveThreadID(home, requested string) (string, error) {
 }
 
 func ExportThread(home, threadID string) (*ExportData, error) {
+	return ExportThreadWithOptions(home, threadID, ExportThreadOptions{})
+}
+
+func ExportThreadWithOptions(home, threadID string, opts ExportThreadOptions) (*ExportData, error) {
 	home, err := ResolveHome(home)
 	if err != nil {
 		return nil, err
@@ -177,7 +185,9 @@ func ExportThread(home, threadID string) (*ExportData, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessionBytes, err = NormalizeActiveSession(sessionBytes, threadID)
+	sessionBytes, err = NormalizeActiveSessionWithOptions(sessionBytes, threadID, NormalizeActiveSessionOptions{
+		DropSelfExportTurn: opts.DropSelfExportTurn,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -408,10 +418,18 @@ type activeSessionTurn struct {
 	lines []activeSessionLine
 }
 
+type NormalizeActiveSessionOptions struct {
+	DropSelfExportTurn bool
+}
+
 // NormalizeActiveSession applies Codex rollback events to a raw session log.
 // Forked Codex transcripts can keep rolled-back turns in the JSONL; exported
 // capsules should preserve the active branch users see in the native UI.
 func NormalizeActiveSession(content []byte, threadID string) ([]byte, error) {
+	return NormalizeActiveSessionWithOptions(content, threadID, NormalizeActiveSessionOptions{})
+}
+
+func NormalizeActiveSessionWithOptions(content []byte, threadID string, opts NormalizeActiveSessionOptions) ([]byte, error) {
 	var prefix []activeSessionLine
 	var completed []activeSessionTurn
 	var current *activeSessionTurn
@@ -459,6 +477,9 @@ func NormalizeActiveSession(content []byte, threadID string) ([]byte, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	if opts.DropSelfExportTurn {
+		completed, current = dropTrailingSelfExportTurn(completed, current, threadID)
+	}
 	lines := append([]activeSessionLine{}, prefix...)
 	for _, turn := range completed {
 		lines = append(lines, turn.lines...)
@@ -467,6 +488,207 @@ func NormalizeActiveSession(content []byte, threadID string) ([]byte, error) {
 		lines = append(lines, current.lines...)
 	}
 	return encodeActiveSession(lines, threadID), nil
+}
+
+func dropTrailingSelfExportTurn(completed []activeSessionTurn, current *activeSessionTurn, threadID string) ([]activeSessionTurn, *activeSessionTurn) {
+	if current != nil {
+		if isPureSelfExportTurn(*current, threadID) {
+			return completed, nil
+		}
+		return completed, current
+	}
+	if len(completed) == 0 {
+		return completed, current
+	}
+	if isPureSelfExportTurn(completed[len(completed)-1], threadID) {
+		return completed[:len(completed)-1], current
+	}
+	return completed, current
+}
+
+func isPureSelfExportTurn(turn activeSessionTurn, threadID string) bool {
+	hasExportRequest := false
+	hasSelfExportCommand := false
+	for _, line := range turn.lines {
+		if !line.parsed || stringValue(line.item["type"]) != "response_item" {
+			continue
+		}
+		payload, _ := line.item["payload"].(map[string]any)
+		switch stringValue(payload["type"]) {
+		case "message":
+			if stringValue(payload["role"]) == "user" {
+				text := extractMessageText(payload["content"])
+				if visibleSelfExportRequest(text) {
+					hasExportRequest = true
+				}
+			}
+		case "function_call", "custom_tool_call", "tool_search_call":
+			if isSelfExportSupportToolCall(payload) {
+				continue
+			}
+			command := shellCommandFromToolCall(payload)
+			if command == "" {
+				return false
+			}
+			if isSelfExportCommand(command, threadID) {
+				hasSelfExportCommand = true
+				continue
+			}
+			if !isSelfExportSupportCommand(command) {
+				return false
+			}
+		}
+	}
+	return hasExportRequest && hasSelfExportCommand
+}
+
+func isSelfExportSupportToolCall(payload map[string]any) bool {
+	name := stringValue(payload["name"])
+	if name == "" {
+		name = stringValue(payload["type"])
+	}
+	return name == "write_stdin"
+}
+
+func visibleSelfExportRequest(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || hiddenUserMessage(text) {
+		return false
+	}
+	lower := strings.ToLower(text)
+	hasExport := strings.Contains(lower, "export") || strings.Contains(lower, "share") ||
+		strings.Contains(text, "导出") || strings.Contains(text, "分享")
+	hasSession := strings.Contains(lower, "session") || strings.Contains(lower, "thread") ||
+		strings.Contains(text, "会话") || strings.Contains(text, "这个")
+	return hasExport && hasSession
+}
+
+func hiddenUserMessage(text string) bool {
+	for _, prefix := range []string{
+		"# AGENTS.md instructions for ",
+		"<environment_context>",
+		"<skill>",
+		"<turn_aborted>",
+		"<INSTRUCTIONS>",
+	} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func shellCommandFromToolCall(payload map[string]any) string {
+	args := payload["arguments"]
+	if args == nil {
+		args = payload["input"]
+	}
+	switch value := args.(type) {
+	case string:
+		var parsed map[string]any
+		if json.Unmarshal([]byte(value), &parsed) == nil {
+			if command := stringValue(parsed["cmd"]); command != "" {
+				return command
+			}
+		}
+		return ""
+	case map[string]any:
+		return stringValue(value["cmd"])
+	default:
+		return ""
+	}
+}
+
+func isSelfExportSupportCommand(command string) bool {
+	command = strings.TrimSpace(command)
+	lower := strings.ToLower(command)
+	switch lower {
+	case "command -v capsule", "which capsule", "capsule help", "capsule --help", "capsule -h":
+		return true
+	}
+	if strings.HasPrefix(lower, "go install ") && strings.Contains(lower, "github.com/z2z23n0/agent-capsule/cmd/capsule") {
+		return true
+	}
+	if (strings.HasPrefix(lower, "sed ") || strings.HasPrefix(lower, "cat ")) &&
+		strings.Contains(lower, "agent-capsule") && strings.Contains(lower, "skill.md") {
+		return true
+	}
+	return false
+}
+
+func isSelfExportCommand(command, threadID string) bool {
+	fields := strings.Fields(command)
+	for start := 0; start < len(fields); {
+		end := start
+		for end < len(fields) && !isShellSeparator(fields[end]) {
+			end++
+		}
+		if capsuleExportSegmentTargetsSelf(fields[start:end], threadID) {
+			return true
+		}
+		start = end + 1
+	}
+	return false
+}
+
+func capsuleExportSegmentTargetsSelf(fields []string, threadID string) bool {
+	if len(fields) < 2 {
+		return false
+	}
+	index := 0
+	if trimShellToken(fields[index]) == "env" {
+		index++
+		for index < len(fields) && strings.Contains(trimShellToken(fields[index]), "=") {
+			index++
+		}
+	}
+	if index+1 >= len(fields) {
+		return false
+	}
+	if isCapsuleToken(fields[index]) && trimShellToken(fields[index+1]) == "export" {
+		target := capsuleExportThreadArg(fields[index+2:])
+		return target == "" || target == "current" || (threadID != "" && target == threadID)
+	}
+	if index+3 < len(fields) && trimShellToken(fields[index]) == "go" && trimShellToken(fields[index+1]) == "run" &&
+		isCapsuleToken(fields[index+2]) && trimShellToken(fields[index+3]) == "export" {
+		target := capsuleExportThreadArg(fields[index+4:])
+		return target == "" || target == "current" || (threadID != "" && target == threadID)
+	}
+	return false
+}
+
+func isShellSeparator(field string) bool {
+	field = trimShellToken(field)
+	return field == "&&" || field == ";" || field == "|"
+}
+
+func isCapsuleToken(token string) bool {
+	token = trimShellToken(token)
+	if token == "" {
+		return false
+	}
+	parts := strings.Split(token, "/")
+	return parts[len(parts)-1] == "capsule"
+}
+
+func capsuleExportThreadArg(fields []string) string {
+	for i := 0; i < len(fields); i++ {
+		field := trimShellToken(fields[i])
+		if isShellSeparator(field) {
+			break
+		}
+		if field == "--thread" && i+1 < len(fields) {
+			return trimShellToken(fields[i+1])
+		}
+		if strings.HasPrefix(field, "--thread=") {
+			return strings.TrimPrefix(field, "--thread=")
+		}
+	}
+	return ""
+}
+
+func trimShellToken(token string) string {
+	return strings.Trim(token, `"'`)
 }
 
 func codexEvent(line activeSessionLine) (string, map[string]any) {
