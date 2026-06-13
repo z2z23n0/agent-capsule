@@ -18,10 +18,12 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/z2z23n0/agent-capsule/internal/claude"
 	"github.com/z2z23n0/agent-capsule/internal/codex"
 )
 
 const testThreadID = "019e0000-0000-7000-8000-000000000001"
+const testClaudeSessionID = "801c0d56-31be-436e-81b5-b25efeca0562"
 
 func TestExportCreatesStandardZipWithAgentReadme(t *testing.T) {
 	home := createFakeCodexHome(t)
@@ -84,6 +86,160 @@ func TestDefaultOutputNameUsesTitleThenFirstUserText(t *testing.T) {
 	}
 	if got := DefaultOutputName("", testThreadID, "share this session", testThreadID); got != "share-this-session.capsule.zip" {
 		t.Fatalf("first user output = %q", got)
+	}
+}
+
+func TestClaudeExportAndNativeImport(t *testing.T) {
+	sourceHome, sourceCWD := createFakeClaudeHome(t)
+	out := filepath.Join(t.TempDir(), "claude.capsule.zip")
+	exported, err := Export(ExportOptions{SourceAgent: AgentClaude, Home: sourceHome, Thread: testClaudeSessionID, Out: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.Source != AgentClaude || exported.ThreadID != testClaudeSessionID {
+		t.Fatalf("unexpected export result: %+v", exported)
+	}
+	if readZipFile(t, out, "claude/session.jsonl") == "" {
+		t.Fatal("missing Claude raw session")
+	}
+	var manifest Manifest
+	if err := json.Unmarshal([]byte(readZipFile(t, out, "manifest.json")), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SourceAgent != AgentClaude || manifest.LosslessLevel == "" {
+		t.Fatalf("manifest missing Claude metadata: %+v", manifest)
+	}
+	targetHome := t.TempDir()
+	targetCWD := filepath.Join(t.TempDir(), "target-project")
+	if err := os.MkdirAll(targetCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	importedAny, err := Import(out, ImportOptions{Target: AgentClaude, Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, ok := importedAny.(*claude.RestoreResult)
+	if !ok {
+		t.Fatalf("import result type = %T", importedAny)
+	}
+	if imported.SessionID == testClaudeSessionID {
+		t.Fatal("Claude import reused source session id")
+	}
+	verify, err := claude.VerifySession(targetHome, imported.SessionID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("Claude verify failed: %+v", verify)
+	}
+	sourceBytes, err := os.ReadFile(filepath.Join(sourceHome, "projects", claude.ProjectDirName(sourceCWD), testClaudeSessionID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sourceBytes), testClaudeSessionID) {
+		t.Fatal("source Claude session was unexpectedly modified")
+	}
+}
+
+func TestClaudeLinkManifestDefaultsToClaudeImportTarget(t *testing.T) {
+	manifest := buildLinkManifest(&ExportResult{
+		Source:   AgentClaude,
+		ThreadID: testClaudeSessionID,
+		Title:    "Claude handoff",
+	}, encryptedCapsule{
+		Ciphertext: []byte("ciphertext"),
+		Nonce:      make([]byte, 12),
+		SHA256:     "sha256",
+	}, "official")
+	if !strings.Contains(manifest.Import.Command, "--target claude") {
+		t.Fatalf("import command = %q", manifest.Import.Command)
+	}
+	if manifest.Import.Command != manifest.Import.ExecuteCommand {
+		t.Fatalf("command mismatch: %q != %q", manifest.Import.Command, manifest.Import.ExecuteCommand)
+	}
+}
+
+func TestCodexToClaudeLocalHandoffWritesNativeSessionAndSidecar(t *testing.T) {
+	sourceHome := createFakeCodexHome(t)
+	targetHome := t.TempDir()
+	targetCWD := filepath.Join(t.TempDir(), "claude-target")
+	if err := os.MkdirAll(targetCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Handoff(HandoffOptions{
+		From:         AgentCodex,
+		To:           AgentClaude,
+		SourceHome:   sourceHome,
+		TargetHome:   targetHome,
+		SourceThread: testThreadID,
+		TargetCWD:    targetCWD,
+		Execute:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ok" || result.TargetID == "" {
+		t.Fatalf("unexpected handoff result: %+v", result)
+	}
+	verify, err := claude.VerifySession(targetHome, result.TargetID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("Claude verify failed: %+v", verify)
+	}
+	sessionPath := filepath.Join(targetHome, "projects", claude.ProjectDirName(targetCWD), result.TargetID+".jsonl")
+	content, err := os.ReadFile(sessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "share this session") || !strings.Contains(string(content), "ready to restore") {
+		t.Fatalf("handoff content missing Codex transcript:\n%s", content)
+	}
+	if _, err := os.Stat(filepath.Join(targetHome, "agent-capsule-sources", result.TargetID, "source.jsonl")); err != nil {
+		t.Fatalf("missing Claude sidecar: %v", err)
+	}
+}
+
+func TestClaudeToCodexLocalHandoffWritesNativeThreadAndSidecar(t *testing.T) {
+	sourceHome, _ := createFakeClaudeHome(t)
+	targetHome := createEmptyCodexHome(t)
+	targetCWD := filepath.Join(t.TempDir(), "codex-target")
+	if err := os.MkdirAll(targetCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Handoff(HandoffOptions{
+		From:         AgentClaude,
+		To:           AgentCodex,
+		SourceHome:   sourceHome,
+		TargetHome:   targetHome,
+		SourceThread: testClaudeSessionID,
+		TargetCWD:    targetCWD,
+		Execute:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ok" || result.TargetID == "" {
+		t.Fatalf("unexpected handoff result: %+v", result)
+	}
+	verify, err := Verify(targetHome, result.TargetID, targetCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify.Status != "ok" {
+		t.Fatalf("Codex verify failed: %+v", verify)
+	}
+	sessionPath := verifySessionPath(t, targetHome, result.TargetID)
+	content, err := os.ReadFile(sessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "Claude asks for help") || !strings.Contains(string(content), "Claude answer") {
+		t.Fatalf("handoff content missing Claude transcript:\n%s", content)
+	}
+	if _, err := os.Stat(filepath.Join(targetHome, "agent-capsule-sources", result.TargetID, "source.jsonl")); err != nil {
+		t.Fatalf("missing Codex sidecar: %v", err)
 	}
 }
 
@@ -1046,6 +1202,54 @@ func createFakeCodexHome(t *testing.T) string {
 	return home
 }
 
+func createFakeClaudeHome(t *testing.T) (string, string) {
+	t.Helper()
+	home := t.TempDir()
+	cwd := filepath.Join(t.TempDir(), "claude-source")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := filepath.Join(home, "projects", claude.ProjectDirName(cwd))
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessionPath := filepath.Join(projectDir, testClaudeSessionID+".jsonl")
+	lines := []string{
+		`{"type":"queue-operation","operation":"enqueue","timestamp":"2026-06-11T00:00:00Z","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"type":"queue-operation","operation":"dequeue","timestamp":"2026-06-11T00:00:00Z","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Claude asks for help"},"uuid":"5b00343b-dfbe-45cd-b6f6-60c04f157721","timestamp":"2026-06-11T00:00:01Z","userType":"external","entrypoint":"claude-code","cwd":"` + cwd + `","sessionId":"` + testClaudeSessionID + `","version":"2.0.45","gitBranch":"main"}`,
+		`{"parentUuid":"5b00343b-dfbe-45cd-b6f6-60c04f157721","isSidechain":false,"type":"assistant","uuid":"00c879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","timestamp":"2026-06-11T00:00:02Z","message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"Claude answer"}],"usage":{}},"userType":"external","entrypoint":"claude-code","cwd":"` + cwd + `","sessionId":"` + testClaudeSessionID + `","version":"2.0.45","gitBranch":"main"}`,
+		`{"type":"last-prompt","lastPrompt":"Claude asks for help","leafUuid":"00c879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","sessionId":"` + testClaudeSessionID + `"}`,
+	}
+	if err := os.WriteFile(sessionPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	index := map[string]any{
+		"version":      1,
+		"originalPath": cwd,
+		"entries": []map[string]any{{
+			"sessionId":    testClaudeSessionID,
+			"fullPath":     sessionPath,
+			"fileMtime":    int64(1781136002000),
+			"firstPrompt":  "Claude asks for help",
+			"messageCount": 2,
+			"created":      "2026-06-11T00:00:01Z",
+			"modified":     "2026-06-11T00:00:02Z",
+			"gitBranch":    "main",
+			"projectPath":  cwd,
+			"isSidechain":  false,
+		}},
+	}
+	payload, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "sessions-index.json"), append(payload, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home, cwd
+}
+
 func createFakeCodexHomeWithSession(t *testing.T, session string) string {
 	t.Helper()
 	home := createEmptyCodexHome(t)
@@ -1367,6 +1571,55 @@ func readIndexEntry(t *testing.T, home, threadID string) map[string]any {
 	}
 	t.Fatalf("missing session index entry for %s", threadID)
 	return nil
+}
+
+func verifySessionPath(t *testing.T, home, threadID string) string {
+	t.Helper()
+	row := readSQLiteThreadRowForTest(t, home, threadID)
+	path, _ := row["rollout_path"].(string)
+	if path == "" {
+		t.Fatalf("missing rollout_path for %s", threadID)
+	}
+	return path
+}
+
+func readSQLiteThreadRowForTest(t *testing.T, home, threadID string) map[string]any {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(home, "state_5.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query("select * from threads where id = ?", threadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatalf("missing sqlite row for %s", threadID)
+	}
+	columns, err := rows.Columns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := make([]any, len(columns))
+	ptrs := make([]any, len(columns))
+	for i := range values {
+		ptrs[i] = &values[i]
+	}
+	if err := rows.Scan(ptrs...); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]any{}
+	for i, column := range columns {
+		switch value := values[i].(type) {
+		case []byte:
+			out[column] = string(value)
+		default:
+			out[column] = value
+		}
+	}
+	return out
 }
 
 func readZipFile(t *testing.T, path, name string) string {
