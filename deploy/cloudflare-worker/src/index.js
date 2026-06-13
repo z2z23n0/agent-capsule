@@ -532,6 +532,70 @@ button, a { font: inherit; }
   border-radius: 28px;
   padding: 20px 28px;
 }
+.skill-message {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+.skill-chip {
+  display: inline-block;
+  max-width: 100%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.skill-chip > summary {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  list-style: none;
+  color: var(--link);
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+.skill-chip > summary::-webkit-details-marker { display: none; }
+.skill-chip[open] {
+  display: block;
+  margin: 0 0 12px;
+}
+.skill-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  color: var(--link);
+  flex: 0 0 auto;
+}
+.skill-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+.skill-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skill-message-text {
+  vertical-align: middle;
+}
+.skill-chip-body {
+  margin: 12px 0 0;
+  border-radius: 8px;
+  background: #e7e9ec;
+  color: var(--ink);
+  padding: 16px;
+  max-height: 58vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 15px;
+  line-height: 1.55;
+}
 .message-row.assistant .bubble {
   width: 100%;
   max-width: 100%;
@@ -842,6 +906,20 @@ button, a { font: inherit; }
     padding: 12px 15px;
     border-radius: 18px;
   }
+  .skill-message { font-size: 15px; }
+  .skill-chip > summary {
+    min-height: 26px;
+    gap: 6px;
+  }
+  .skill-icon,
+  .skill-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+  .skill-chip-body {
+    padding: 12px;
+    font-size: 12px;
+  }
   .markdown { font-size: 16px; line-height: 1.68; }
   .message-row.user .markdown { font-size: 15px; }
   .turn-process-row {
@@ -1003,7 +1081,8 @@ function isInternalContextEntry(entry) {
   return text.startsWith("# AGENTS.md instructions for ") ||
     text.startsWith("<codex_internal_context") ||
     text.startsWith("<environment_context>") ||
-    text.startsWith("<INSTRUCTIONS>");
+    text.startsWith("<INSTRUCTIONS>") ||
+    text.startsWith("<skill>");
 }
 
 function messageNode(entry) {
@@ -1015,10 +1094,67 @@ function messageNode(entry) {
   role.className = "role";
   role.textContent = roleLabel(entry.role);
   bubble.appendChild(role);
-  if (String(entry.text || "").trim()) bubble.appendChild(renderMarkdown(entry.text || ""));
+  const skills = Array.isArray(entry.skills) ? entry.skills : [];
+  if (entry.role === "user" && skills.length) {
+    bubble.classList.add("with-skills");
+    bubble.appendChild(skillMessageNode(entry, skills));
+  } else if (String(entry.text || "").trim()) {
+    bubble.appendChild(renderMarkdown(entry.text || ""));
+  }
   if ((entry.images || []).length || entry.omitted_images) bubble.appendChild(imageGallery(entry));
   article.appendChild(bubble);
   return article;
+}
+
+function skillMessageNode(entry, skills) {
+  const node = document.createElement("div");
+  node.className = "skill-message";
+  for (const skill of skills) node.appendChild(skillDetailsNode(skill));
+  const text = stripSkillInvocation(entry.text || "", skills).trim();
+  if (text) {
+    const span = document.createElement("span");
+    span.className = "skill-message-text";
+    appendInlineWithBreaks(span, text);
+    node.appendChild(span);
+  }
+  return node;
+}
+
+function skillDetailsNode(skill) {
+  const details = document.createElement("details");
+  details.className = "skill-chip";
+  const summary = document.createElement("summary");
+  const label = document.createElement("span");
+  label.className = "skill-name";
+  label.textContent = formatSkillName(skill && skill.name);
+  summary.append(skillIconNode(), label);
+  const body = document.createElement("pre");
+  body.className = "skill-chip-body";
+  body.textContent = String((skill && skill.text) || (skill && skill.path) || "");
+  details.append(summary, body);
+  return details;
+}
+
+function skillIconNode() {
+  const icon = document.createElement("span");
+  icon.className = "skill-icon";
+  icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.4 5.2 7.1v9.7l6.8 3.8 6.8-3.8V7.1L12 3.4Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="m5.6 7.4 6.4 3.5 6.4-3.5M12 10.9v9.1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return icon;
+}
+
+function formatSkillName(name) {
+  const text = String(name || "skill").trim().replace(/^[$@]/, "");
+  return text.split(/[-_\\s]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") || "Skill";
+}
+
+function stripSkillInvocation(text, skills) {
+  let out = String(text || "");
+  out = out.replace(/^\\s*\\[([^\\]]+)\\]\\(([^)]+)\\)\\s*/, (match, label) => {
+    const normalized = String(label || "").replace(/^[$@]/, "").toLowerCase();
+    const matched = skills.some((skill) => normalized === String(skill && skill.name || "").toLowerCase());
+    return matched ? "" : match;
+  });
+  return out;
 }
 
 function imageGallery(entry) {

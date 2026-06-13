@@ -41,12 +41,19 @@ type PreviewEntry struct {
 	Text          string         `json:"text,omitempty"`
 	Images        []PreviewImage `json:"images,omitempty"`
 	OmittedImages int            `json:"omitted_images,omitempty"`
+	Skills        []PreviewSkill `json:"skills,omitempty"`
 	Tool          string         `json:"tool,omitempty"`
 	Status        string         `json:"status,omitempty"`
 	InputPreview  string         `json:"input_preview,omitempty"`
 	Output        string         `json:"output,omitempty"`
 	OutputBytes   int            `json:"output_bytes,omitempty"`
 	Truncated     bool           `json:"truncated,omitempty"`
+}
+
+type PreviewSkill struct {
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 type PreviewImage struct {
@@ -135,6 +142,10 @@ func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAs
 			if text == "" && len(images) == 0 && omitted == 0 {
 				continue
 			}
+			if skill, ok := previewSkillMessage(text); ok {
+				attachPreviewSkill(&transcript, skill)
+				continue
+			}
 			if previewHiddenMessage(text) {
 				continue
 			}
@@ -188,6 +199,16 @@ func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAs
 		}
 	}
 	return transcript
+}
+
+func attachPreviewSkill(transcript *PreviewTranscript, skill PreviewSkill) {
+	for i := len(transcript.Entries) - 1; i >= 0; i-- {
+		entry := &transcript.Entries[i]
+		if entry.Kind == "message" && entry.Role == "user" {
+			entry.Skills = append(entry.Skills, skill)
+			return
+		}
+	}
 }
 
 func appendPreviewEntry(transcript *PreviewTranscript, entry PreviewEntry) bool {
@@ -395,7 +416,8 @@ func previewHiddenMessage(text string) bool {
 	return strings.HasPrefix(text, "# AGENTS.md instructions for ") ||
 		strings.HasPrefix(text, "<codex_internal_context") ||
 		strings.HasPrefix(text, "<environment_context>") ||
-		strings.HasPrefix(text, "<INSTRUCTIONS>")
+		strings.HasPrefix(text, "<INSTRUCTIONS>") ||
+		strings.HasPrefix(text, "<skill>")
 }
 
 func previewClip(text string, max int) (string, bool) {
@@ -405,4 +427,35 @@ func previewClip(text string, max int) (string, bool) {
 		return text, false
 	}
 	return string(runes[:max]) + "...", true
+}
+
+func previewSkillMessage(text string) (PreviewSkill, bool) {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "<skill>") {
+		return PreviewSkill{}, false
+	}
+	name := previewXMLTag(text, "name")
+	if name == "" {
+		name = "skill"
+	}
+	return PreviewSkill{
+		Name: name,
+		Path: previewXMLTag(text, "path"),
+		Text: text,
+	}, true
+}
+
+func previewXMLTag(text, tag string) string {
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	start := strings.Index(text, open)
+	if start < 0 {
+		return ""
+	}
+	start += len(open)
+	end := strings.Index(text[start:], close)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+end])
 }

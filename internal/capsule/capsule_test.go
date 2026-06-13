@@ -408,6 +408,27 @@ func TestPreviewTranscriptSkipsRolledBackTurns(t *testing.T) {
 	}
 }
 
+func TestPreviewTranscriptSkipsOpenTurnRolledBackWithPreviousTurn(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Open rollback demo",
+		SourceCWD:   "/source/project",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	transcript := buildPreviewTranscript(manifest, []byte(openTurnRolledBackSession(testThreadID)))
+	preview := previewEntriesText(transcript)
+	for _, dropped := range []string{"drop previous request", "open aborted request"} {
+		if strings.Contains(preview, dropped) {
+			t.Fatalf("rolled-back open/current history leaked %q into preview:\n%s", dropped, preview)
+		}
+	}
+	for _, want := range []string{"keep first request", "keep final request"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("preview missing %q:\n%s", want, preview)
+		}
+	}
+}
+
 func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	manifest := Manifest{
 		ThreadID:    testThreadID,
@@ -430,6 +451,39 @@ func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	}
 }
 
+func TestPreviewTranscriptAttachesSkillMessages(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-06-12T00:00:00Z",
+	}
+	session := strings.Join([]string{
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"[$agent-capsule](/Users/me/.codex/skills/agent-capsule/SKILL.md) 导出一下这个 session"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>agent-capsule</name>\n<path>/Users/me/.codex/skills/agent-capsule/SKILL.md</path>\n---\nname: agent-capsule\ndescription: Use when Codex needs to install or use Agent Capsule.\n</skill>"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"exported"}]}}`,
+	}, "\n") + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session))
+	if transcript.MessageCount != 2 {
+		t.Fatalf("message_count = %d", transcript.MessageCount)
+	}
+	if len(transcript.Entries) != 2 {
+		t.Fatalf("entries = %d", len(transcript.Entries))
+	}
+	if len(transcript.Entries[0].Skills) != 1 {
+		t.Fatalf("skills = %+v", transcript.Entries[0].Skills)
+	}
+	skill := transcript.Entries[0].Skills[0]
+	if skill.Name != "agent-capsule" || skill.Path != "/Users/me/.codex/skills/agent-capsule/SKILL.md" {
+		t.Fatalf("skill metadata = %+v", skill)
+	}
+	if !strings.Contains(skill.Text, "Use when Codex needs") {
+		t.Fatalf("skill text missing body: %+v", skill)
+	}
+	if strings.Contains(previewEntriesText(transcript), "<skill>") {
+		t.Fatalf("skill body leaked as normal preview text:\n%s", previewEntriesText(transcript))
+	}
+}
+
 func TestExportWritesOnlyActiveSessionBranch(t *testing.T) {
 	home := createFakeCodexHomeWithSession(t, rolledBackSession(testThreadID))
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")
@@ -445,6 +499,28 @@ func TestExportWritesOnlyActiveSessionBranch(t *testing.T) {
 	}
 	if !strings.Contains(session, "keep current request") {
 		t.Fatalf("export missing current turn:\n%s", session)
+	}
+}
+
+func TestExportDropsOpenTurnRolledBackWithPreviousTurn(t *testing.T) {
+	home := createFakeCodexHomeWithSession(t, openTurnRolledBackSession(testThreadID))
+	out := filepath.Join(t.TempDir(), "session.capsule.zip")
+	if _, err := Export(ExportOptions{Home: home, Thread: testThreadID, Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	session := readZipFile(t, out, "codex/session.jsonl")
+	for _, dropped := range []string{"drop previous request", "open aborted request"} {
+		if strings.Contains(session, dropped) {
+			t.Fatalf("rolled-back open/current history leaked %q into export:\n%s", dropped, session)
+		}
+	}
+	for _, want := range []string{"keep first request", "keep final request"} {
+		if !strings.Contains(session, want) {
+			t.Fatalf("export missing %q:\n%s", want, session)
+		}
+	}
+	if count := strings.Count(session, `"type":"session_meta"`); count != 1 {
+		t.Fatalf("session_meta count = %d\n%s", count, session)
 	}
 }
 
@@ -920,6 +996,29 @@ func rolledBackSession(threadID string) string {
 		`{"timestamp":"2026-06-12T00:00:13Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep current request"}]}}`,
 		`{"timestamp":"2026-06-12T00:00:14Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_keep","arguments":"{\"cmd\":\"true\"}"}}`,
 		`{"timestamp":"2026-06-12T00:00:15Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_keep","output":"keep current output"}}`,
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func openTurnRolledBackSession(threadID string) string {
+	ancestorID := "019e0000-0000-7000-8000-000000000099"
+	lines := []string{
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + threadID + `","forked_from_id":"` + ancestorID + `","timestamp":"2026-06-12T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:00Z","type":"session_meta","payload":{"id":"` + ancestorID + `","timestamp":"2026-06-11T00:00:00Z","cwd":"/source/project","cli_version":"0.140.0-alpha.2","source":"vscode","thread_source":"user","model_provider":"openai"}}`,
+		`{"timestamp":"2026-06-12T00:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_keep_first"}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep first request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"keep first answer"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_keep_first","duration_ms":1}}`,
+		`{"timestamp":"2026-06-12T00:00:05Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_drop_previous"}}`,
+		`{"timestamp":"2026-06-12T00:00:06Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"drop previous request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:07Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_drop_previous","duration_ms":1}}`,
+		`{"timestamp":"2026-06-12T00:00:08Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_open_abort"}}`,
+		`{"timestamp":"2026-06-12T00:00:09Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"open aborted request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:10Z","type":"event_msg","payload":{"type":"thread_rolled_back","num_turns":2}}`,
+		`{"timestamp":"2026-06-12T00:00:11Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_keep_final"}}`,
+		`{"timestamp":"2026-06-12T00:00:12Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep final request"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:13Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"keep final answer"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:14Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_keep_final","duration_ms":1}}`,
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

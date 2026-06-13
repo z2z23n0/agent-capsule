@@ -197,6 +197,9 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.match(html, /function renderMarkdown/);
   assert.match(html, /function imageGallery/);
   assert.match(html, /function isInternalContextEntry/);
+  assert.match(html, /skill-chip/);
+  assert.match(html, /function skillDetailsNode/);
+  assert.match(html, /function stripSkillInvocation/);
   assert.match(html, /image-grid/);
   assert.match(html, /preview-image/);
   assert.doesNotMatch(html, /dry-run/i);

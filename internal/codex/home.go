@@ -427,6 +427,10 @@ func NormalizeActiveSession(content []byte, threadID string) ([]byte, error) {
 		eventType, payload := codexEvent(line)
 		if eventType == "thread_rolled_back" {
 			rollbackTurns := int(toInt64(payload["num_turns"], 0))
+			if rollbackTurns > 0 && current != nil {
+				current = nil
+				rollbackTurns--
+			}
 			if rollbackTurns > len(completed) {
 				rollbackTurns = len(completed)
 			}
