@@ -1,8 +1,10 @@
 # Agent Capsule
 
-Agent Capsule 用来把本地 coding-agent 会话打包成可分享的胶囊，或者在同一台机器上做原生 handoff。
+Agent Capsule 把一段完整 Codex / Claude Code 对话变成一个可分享链接。
 
-你可以把本地 Codex thread 或 Claude Code session 导出成标准 `.capsule.zip` 文件，或者导出成加密分享链接；接收方可以导入到自己的 Codex 或 Claude Code 里，打开完整对话，并继续接着工作。同一台机器上可以用 `capsule handoff` 直接从一个 agent 的本地历史写入另一个 agent 的原生历史。
+你只需要把链接发给别人，对方就可以把这段对话导入到自己的本地 Codex 或 Claude Code 里，得到一条和你本地一样的原生 thread/session，包含完整上下文，并可以在会话中直接继续工作。
+
+对方把链接交给自己的 Codex 或 Claude Code 后，agent 自己就可以把这段会话导入到本地原生 UI/UX 里继续使用。
 
 CLI 命令叫 `capsule`。
 
@@ -10,11 +12,9 @@ CLI 命令叫 `capsule`。
 
 ## 解决什么问题
 
-你想分享整个 agent 对话，包括你思考、找到问题的过程，或是问题排查的记录。
+你想把整个 agent 工作现场交给别人：包括对话、排查过程、工具使用、工作上下文，以及还没完成的下一步。
 
-你想完整地交接一段工作，例如未完成的 bug 定位，或是没写完的代码。
-
-Agent Capsule 会把这段会话打包成一个可检查、可导入的胶囊，让接收方不只是读一段聊天记录，而是能把它恢复到自己的 Codex 或 Claude Code 里继续用。
+Agent Capsule 会把这段会话打包成一个可以一键导入的胶囊。接收方拿到后，不只是阅读你过去聊了什么，而是可以把它恢复到自己的 agent 里接着做。
 
 ## 当前状态
 
@@ -35,8 +35,7 @@ go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)。
 这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入、怎么执行本地 Codex <-> Claude Code handoff。
 
-胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方
-agent 即使没有预装 skill，也能安装 CLI、检查、导入并验证新 thread。
+胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方 agent 即使没有预装 skill，也能理解操作、安装 CLI、检查胶囊、导入到本地原生 Codex / Claude Code UI/UX，并验证新 thread/session。
 
 ## 快速开始：链接交接
 
@@ -60,7 +59,7 @@ https://<worker-host>/s/<share-id>#k=<base64url-key>
 
 分享前，胶囊会先用 AES-256-GCM 加密。服务端保存 ciphertext 和 manifest；解密 key 放在 URL fragment 里，正常浏览器请求不会把 fragment 发给服务端。
 
-打开链接后，浏览器页面会在本地解密并展示可读预览，同时给 agent 提供安装、skill 和导入命令。
+打开链接后，浏览器页面会在本地解密并展示可读预览，同时给 agent 提供安装 CLI、检查和导入命令。
 
 如果会话包含图片，浏览器预览会在 preview 大小限制内展示图片缩略图。图片很多或很大的 session 仍然可以从完整加密胶囊导入。
 

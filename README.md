@@ -1,13 +1,15 @@
 # Agent Capsule
 
-Agent Capsule turns a local coding-agent session into a shareable capsule or a
-native same-machine handoff.
+Agent Capsule turns a complete Codex / Claude Code conversation into a shareable
+link.
 
-You can export a local Codex or Claude Code session as a standard
-`.capsule.zip` file, or as an encrypted share link. The receiver can import it
-into Codex or Claude Code, open the full conversation, and continue the work.
-On the same machine, `capsule handoff` writes directly from one agent's local
-history into the other agent's native history.
+You only need to send the link to someone else. They can import that
+conversation into their own local Codex or Claude Code, get a native
+thread/session like the one on your machine, with the full context, and continue
+working directly inside the conversation.
+
+After they hand the link to their own Codex or Claude Code, the agent can import
+the session into the local native UI/UX and continue from there.
 
 The CLI command is `capsule`.
 
@@ -15,15 +17,12 @@ The CLI command is `capsule`.
 
 ## Why
 
-Sometimes you want to share the whole agent conversation: the reasoning trail,
-the debugging path, and the record of how a problem was found.
+Sometimes you want to hand off the whole agent workspace: the conversation, the
+investigation path, tool use, working context, and unfinished next steps.
 
-Sometimes you want to hand off unfinished work: a bug investigation that is not
-done yet, or code that is only halfway through.
-
-Agent Capsule packages that session into an inspectable, importable capsule so
-the receiver gets more than a chat transcript. They can restore it into Codex or
-Claude Code and keep working from there.
+Agent Capsule packages that session into a capsule that can be imported in one
+step. The receiver gets more than a record of what you talked about; they can
+restore it into their own agent and keep working.
 
 ## Status
 
@@ -54,8 +53,9 @@ after inspection and explicit approval, how to perform local Codex <-> Claude
 Code handoffs.
 
 Capsule files and links do not depend on the skill. They include agent-facing
-bootstrap instructions so a receiving agent can still install the CLI, inspect,
-import, and verify the restored thread.
+bootstrap instructions so a receiving agent can understand the workflow, install
+the CLI, inspect the capsule, import it into the local native Codex / Claude Code
+UI/UX, and verify the restored thread/session even without a preinstalled skill.
 
 ## Quick start: link handoff
 
@@ -82,7 +82,7 @@ ciphertext and manifest; the decryption key lives in the URL fragment and is not
 sent to the server by normal browser requests.
 
 The browser page shows a locally decrypted preview and includes agent-friendly
-install, skill, and import commands.
+CLI install, inspect, and import commands.
 
 For sessions with images, the browser preview shows image thumbnails when they
 fit the preview size limit. Large image-heavy sessions still import from the
