@@ -329,7 +329,7 @@ function sharePageHTML(request, manifest, id) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHTML(title)} - Codex preview</title>
+  <title>${escapeHTML(title)} - Agent Capsule preview</title>
   <style>${sharePageCSS()}</style>
 </head>
 <body>
@@ -339,13 +339,17 @@ function sharePageHTML(request, manifest, id) {
       <header class="preview-header">
         <p class="preview-kicker">Capsule preview</p>
         <h1 id="page-title">${escapeHTML(title)}</h1>
-        <p class="preview-subtitle">这里是可读预览，不是完整原生线程。完整 session 可以交给 agent 导入到你自己的 Codex 原生 UI 里继续。</p>
+        <p class="preview-subtitle">这里默认先显示轻量预览；也可以在本页加载完整可见 transcript，或交给 agent 导入到原生 UI 继续。</p>
         <p class="preview-meta" aria-live="polite">
           <span id="counts">正在等待预览</span>
           <span id="expires-at">加密链接</span>
         </p>
         <hr class="preview-rule">
         <p id="status" class="status">正在读取这个链接里的加密预览。</p>
+        <div id="full-transcript-actions" class="preview-actions" hidden>
+          <button id="load-full-transcript" class="secondary-action" type="button">加载完整会话</button>
+          <span id="full-transcript-status" class="preview-action-status" aria-live="polite"></span>
+        </div>
       </header>
       <section id="transcript" class="codex-thread" aria-label="Session preview" aria-live="polite"></section>
     </section>
@@ -471,6 +475,41 @@ button, a { font: inherit; }
 .status[data-kind="success"] { color: var(--muted-strong); }
 .status[data-kind="warn"] { color: var(--warn); }
 .status[data-kind="error"] { color: var(--error); }
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 18px;
+}
+.secondary-action {
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: #24302e;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 760;
+}
+.secondary-action:hover {
+  border-color: #b8c0c7;
+  background: #f8fafb;
+}
+.secondary-action:active {
+  transform: translateY(1px);
+}
+.secondary-action:disabled {
+  cursor: progress;
+  opacity: .68;
+  transform: none;
+}
+.preview-action-status {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+}
 .codex-thread {
   display: block;
   min-width: 0;
@@ -969,6 +1008,9 @@ function sharePageJS() {
 const metadata = JSON.parse(document.getElementById("agent-capsule-metadata").textContent);
 const $ = (id) => document.getElementById(id);
 const fenceMarker = String.fromCharCode(96, 96, 96);
+let activeManifest = null;
+let activeKey = "";
+let activeTranscriptSource = "";
 
 function fullShareURL() {
   return location.origin + location.pathname + location.search + location.hash;
@@ -994,7 +1036,7 @@ function renderCommands(importInfo) {
 function renderManifestInfo(manifest) {
   if (manifest.thread && manifest.thread.title) {
     $("page-title").textContent = manifest.thread.title;
-    document.title = manifest.thread.title + " - Codex preview";
+    document.title = manifest.thread.title + " - Agent Capsule preview";
   }
   $("expires-at").textContent = manifest.expires_at ? "过期时间 " + new Date(manifest.expires_at).toLocaleString() : "加密链接";
 }
@@ -1023,13 +1065,42 @@ async function decryptPreview(preview, keyText) {
   return JSON.parse(new TextDecoder().decode(plain));
 }
 
-function renderTranscript(transcript) {
+async function decryptBundle(manifest, keyText) {
+  if (!crypto.subtle) throw new Error("WebCrypto is unavailable in this browser");
+  if (!manifest || !manifest.bundle || !manifest.bundle.url) throw new Error("这个链接缺少完整 bundle。");
+  const response = await fetch(manifest.bundle.url);
+  if (!response.ok) throw new Error("完整 bundle 下载失败: " + response.status);
+  const ciphertext = new Uint8Array(await response.arrayBuffer());
+  if (manifest.bundle.bytes && ciphertext.byteLength !== manifest.bundle.bytes) {
+    throw new Error("完整 bundle 字节数不匹配。");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", ciphertext);
+  const actualSHA256 = hexFromBytes(new Uint8Array(digest));
+  const expectedSHA256 = String(manifest.bundle.sha256 || "").toLowerCase();
+  if (expectedSHA256 && actualSHA256 !== expectedSHA256) {
+    throw new Error("完整 bundle sha256 校验失败。");
+  }
+  const keyBytes = base64urlToBytes(keyText);
+  const nonce = base64urlToBytes(manifest.crypto && manifest.crypto.nonce || "");
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext));
+}
+
+function hexFromBytes(bytes) {
+  let out = "";
+  for (const byte of bytes) out += byte.toString(16).padStart(2, "0");
+  return out;
+}
+
+function renderTranscript(transcript, options = {}) {
+  activeTranscriptSource = String(transcript.source || transcript.source_agent || "");
   const entries = (transcript.entries || []).filter((entry) => !isInternalContextEntry(entry));
   const messageCount = entries.filter((entry) => entry.kind === "message").length;
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   const imageCount = entries.reduce((count, entry) => count + (entry.images || []).filter((image) => !image.omitted).length, 0);
   const omittedImages = entries.reduce((count, entry) => count + Number(entry.omitted_images || 0), 0);
-  $("counts").textContent = [messageCount + " 条消息", toolCount + " 个过程步骤", imageCount ? imageCount + " 张图片" : "", omittedImages ? "省略 " + omittedImages + " 张图片" : ""].filter(Boolean).join(" - ");
+  const scope = options.complete ? "完整会话" : "预览";
+  $("counts").textContent = [scope, messageCount + " 条消息", toolCount + " 个过程步骤", imageCount ? imageCount + " 张图片" : "", omittedImages ? "省略 " + omittedImages + " 张图片" : ""].filter(Boolean).join(" - ");
   const root = $("transcript");
   root.replaceChildren();
   if (entries.length === 0) {
@@ -1187,7 +1258,7 @@ function omittedImageNode(count) {
 
 function roleLabel(role) {
   if (role === "user") return "You";
-  if (role === "assistant") return "Codex";
+  if (role === "assistant") return activeTranscriptSource === "claude" ? "Claude" : activeTranscriptSource === "codex" ? "Codex" : "Assistant";
   return role || "Message";
 }
 
@@ -1568,7 +1639,535 @@ function appendInlineToken(parent, token) {
   parent.appendChild(document.createTextNode(token));
 }
 
+function configureFullTranscriptAction(manifest, keyText) {
+  activeManifest = manifest;
+  activeKey = keyText || "";
+  const action = $("full-transcript-actions");
+  const status = $("full-transcript-status");
+  if (!action || !manifest || !manifest.bundle || !manifest.bundle.url || !activeKey) return;
+  action.hidden = false;
+  status.textContent = manifest.bundle.bytes ? "完整包 " + formatBytes(manifest.bundle.bytes) : "";
+}
+
+async function loadFullTranscript() {
+  const button = $("load-full-transcript");
+  const status = $("full-transcript-status");
+  if (!activeManifest || !activeKey) return;
+  button.disabled = true;
+  const old = button.textContent;
+  try {
+    button.textContent = "加载中";
+    status.textContent = "正在下载、校验并解密完整 capsule...";
+    const plainZip = await decryptBundle(activeManifest, activeKey);
+    status.textContent = "正在解包并读取原生 transcript...";
+    const files = await unzipFiles(plainZip);
+    const transcript = await transcriptFromCapsuleFiles(files);
+    renderTranscript(transcript, { complete: true });
+    status.textContent = sourceLabel(transcript.source) + " 原生 transcript 已完整加载。";
+    setStatus("完整可见 transcript 已在浏览器本地解密并渲染；内部上下文和不可见状态仍会被过滤。", "success");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = old;
+    status.textContent = error && error.message ? error.message : String(error);
+    setStatus("完整会话加载失败：" + status.textContent, "error");
+  }
+}
+
+function sourceLabel(source) {
+  if (source === "codex") return "Codex";
+  if (source === "claude") return "Claude";
+  if (source === "neutral") return "Neutral";
+  return "Capsule";
+}
+
+async function unzipFiles(zipBytes) {
+  const bytes = zipBytes instanceof Uint8Array ? zipBytes : new Uint8Array(zipBytes);
+  const eocd = findEndOfCentralDirectory(bytes);
+  const entryCount = u16(bytes, eocd + 10);
+  const centralDirOffset = u32(bytes, eocd + 16);
+  const files = new Map();
+  let offset = centralDirOffset;
+  for (let i = 0; i < entryCount; i += 1) {
+    if (u32(bytes, offset) !== 0x02014b50) throw new Error("zip central directory 格式不支持。");
+    const method = u16(bytes, offset + 10);
+    const compressedSize = u32(bytes, offset + 20);
+    const nameLen = u16(bytes, offset + 28);
+    const extraLen = u16(bytes, offset + 30);
+    const commentLen = u16(bytes, offset + 32);
+    const localOffset = u32(bytes, offset + 42);
+    const name = new TextDecoder().decode(bytes.slice(offset + 46, offset + 46 + nameLen));
+    offset += 46 + nameLen + extraLen + commentLen;
+    if (!name || name.endsWith("/")) continue;
+    if (u32(bytes, localOffset) !== 0x04034b50) throw new Error("zip local header 格式不支持。");
+    const localNameLen = u16(bytes, localOffset + 26);
+    const localExtraLen = u16(bytes, localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+    files.set(name, await unzipEntryData(method, compressed));
+  }
+  return files;
+}
+
+function findEndOfCentralDirectory(bytes) {
+  const min = Math.max(0, bytes.length - 22 - 65535);
+  for (let i = bytes.length - 22; i >= min; i -= 1) {
+    if (u32(bytes, i) === 0x06054b50) return i;
+  }
+  throw new Error("不是可识别的 capsule zip。");
+}
+
+async function unzipEntryData(method, compressed) {
+  if (method === 0) return compressed;
+  if (method === 8) return await inflateRaw(compressed);
+  throw new Error("zip 压缩方法不支持: " + method);
+}
+
+async function inflateRaw(bytes) {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("当前浏览器不支持 zip deflate 解压，请用 agent import。");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function u16(bytes, offset) {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function u32(bytes, offset) {
+  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+}
+
+async function transcriptFromCapsuleFiles(files) {
+  const manifest = readJSONFile(files, "manifest.json") || {};
+  const source = String(manifest.source_agent || "").toLowerCase();
+  const imageAssets = imageAssetsFromCapsule(files);
+  if (source === "codex" && files.has("codex/session.jsonl")) {
+    return codexTranscriptFromSession(files.get("codex/session.jsonl"), manifest, imageAssets);
+  }
+  if (source === "claude" && files.has("claude/session.jsonl")) {
+    return claudeTranscriptFromSession(files.get("claude/session.jsonl"), manifest);
+  }
+  if (files.has("agent/neutral.json")) return neutralTranscriptFromFile(files.get("agent/neutral.json"));
+  if (files.has("codex/session.jsonl")) return codexTranscriptFromSession(files.get("codex/session.jsonl"), manifest, imageAssets);
+  if (files.has("claude/session.jsonl")) return claudeTranscriptFromSession(files.get("claude/session.jsonl"), manifest);
+  throw new Error("完整 capsule 里没有可网页展示的 transcript；旧 capsule 请用 agent import。");
+}
+
+function codexTranscriptFromSession(bytes, manifest, imageAssets) {
+  const transcript = baseTranscript(manifest, "codex");
+  const pendingTools = new Map();
+  for (const item of parseJSONLines(bytes)) {
+    const timestamp = textValue(item.timestamp);
+    const payload = objectRecord(item.payload);
+    if (textValue(item.type) !== "response_item") continue;
+    switch (textValue(payload.type)) {
+    case "message": {
+      const role = textValue(payload.role);
+      if (role !== "user" && role !== "assistant") break;
+      const content = codexMessageContent(payload.content, imageAssets);
+      if (!content.text && !content.images.length && !content.omittedImages) break;
+      const skill = skillFromText(content.text);
+      if (skill) {
+        attachSkill(transcript.entries, skill);
+        break;
+      }
+      if (isInternalText(content.text)) break;
+      transcript.entries.push({
+        kind: "message",
+        timestamp,
+        role,
+        text: content.text,
+        images: content.images,
+        omitted_images: content.omittedImages
+      });
+      break;
+    }
+    case "function_call":
+    case "custom_tool_call":
+    case "tool_search_call": {
+      const entry = {
+        kind: "tool",
+        timestamp,
+        tool: codexToolName(payload),
+        status: textValue(payload.status) || "called",
+        input_preview: fullValue(firstPresent(payload.arguments, payload.input))
+      };
+      transcript.entries.push(entry);
+      const callID = textValue(payload.call_id);
+      if (callID) pendingTools.set(callID, entry);
+      break;
+    }
+    case "function_call_output":
+    case "custom_tool_call_output":
+    case "tool_search_output": {
+      const callID = textValue(payload.call_id);
+      const output = fullValue(payload.output);
+      const status = textValue(payload.status) || "completed";
+      const pending = pendingTools.get(callID);
+      if (pending) {
+        pending.output = output;
+        pending.output_bytes = byteLengthInBrowser(output);
+        if (!pending.status || pending.status === "called") pending.status = status;
+      } else {
+        transcript.entries.push({ kind: "tool", timestamp, tool: "tool output", status, output, output_bytes: byteLengthInBrowser(output) });
+      }
+      break;
+    }
+    default:
+      break;
+    }
+  }
+  return transcript;
+}
+
+function claudeTranscriptFromSession(bytes, manifest) {
+  const transcript = baseTranscript(manifest, "claude");
+  const pendingTools = new Map();
+  for (const item of parseJSONLines(bytes)) {
+    if (item && item.isMeta) continue;
+    const type = textValue(item.type);
+    const timestamp = textValue(item.timestamp);
+    if (type === "user" || type === "assistant") {
+      const message = objectRecord(item.message);
+      const role = textValue(message.role) || type;
+      if (role !== "user" && role !== "assistant") continue;
+      appendClaudeContent(transcript.entries, pendingTools, message.content, role, timestamp);
+      continue;
+    }
+    if (type === "attachment" || type === "file-history-snapshot") {
+      const output = fullValue(firstPresent(item.attachment, item.snapshot));
+      if (output) transcript.entries.push({ kind: "tool", timestamp, tool: type, status: "recorded", output, output_bytes: byteLengthInBrowser(output) });
+    }
+  }
+  return transcript;
+}
+
+function neutralTranscriptFromFile(bytes) {
+  const neutral = JSON.parse(readTextFileBytes(bytes));
+  const entries = [];
+  for (const entry of neutral.entries || []) {
+    if (!entry || typeof entry !== "object") continue;
+    if (entry.kind === "message") {
+      const text = textValue(entry.text);
+      if (!text || isInternalText(text)) continue;
+      entries.push({
+        kind: "message",
+        timestamp: textValue(entry.timestamp),
+        role: textValue(entry.role),
+        text
+      });
+      continue;
+    }
+    if (entry.kind === "tool") {
+      const output = textValue(entry.output);
+      entries.push({
+        kind: "tool",
+        timestamp: textValue(entry.timestamp),
+        tool: textValue(entry.tool) || "tool",
+        status: textValue(entry.status),
+        input_preview: textValue(entry.input) || textValue(entry.input_preview),
+        output,
+        output_bytes: byteLengthInBrowser(output)
+      });
+    }
+  }
+  return {
+    schema: textValue(neutral.schema) || "agent-capsule.neutral.v1",
+    source: "neutral",
+    thread_id: textValue(neutral.source_id),
+    title: textValue(neutral.title),
+    source_cwd: textValue(neutral.source_cwd),
+    created_at: textValue(neutral.created_at),
+    entries
+  };
+}
+
+function baseTranscript(manifest, source) {
+  return {
+    schema: "agent-capsule.web-transcript.v1",
+    source,
+    thread_id: textValue(manifest.thread_id),
+    title: textValue(manifest.thread_title),
+    source_cwd: textValue(manifest.source_cwd),
+    created_at: textValue(manifest.created_at),
+    entries: []
+  };
+}
+
+function codexMessageContent(content, imageAssets) {
+  const parts = [];
+  const tagPaths = [];
+  const inputImages = [];
+  for (const item of Array.isArray(content) ? content : []) {
+    const block = objectRecord(item);
+    for (const key of ["text", "output_text"]) {
+      const text = textValue(block[key]);
+      if (text) {
+        parts.push(text);
+        tagPaths.push(...imageTagPaths(text));
+      }
+    }
+    if (textValue(block.type) === "input_image") {
+      const image = dataImage(textValue(block.image_url), textValue(block.detail));
+      if (image) inputImages.push(image);
+    }
+  }
+  const images = inputImages.length ? inputImages : imagesForPaths(tagPaths, imageAssets);
+  return {
+    text: parts.join("\\n").trim(),
+    images,
+    omittedImages: 0
+  };
+}
+
+function appendClaudeContent(entries, pendingTools, content, role, timestamp) {
+  if (typeof content === "string") {
+    const text = content.trim();
+    if (text && !isInternalText(text)) entries.push({ kind: "message", timestamp, role, text });
+    return;
+  }
+  const textParts = [];
+  const flushText = () => {
+    const text = textParts.join("\\n").trim();
+    textParts.length = 0;
+    if (text && !isInternalText(text)) entries.push({ kind: "message", timestamp, role, text });
+  };
+  for (const blockValue of Array.isArray(content) ? content : []) {
+    const block = objectRecord(blockValue);
+    switch (textValue(block.type)) {
+    case "text":
+      if (textValue(block.text)) textParts.push(textValue(block.text));
+      break;
+    case "tool_use": {
+      flushText();
+      const entry = {
+        kind: "tool",
+        timestamp,
+        tool: textValue(block.name) || "tool_use",
+        status: "called",
+        input_preview: fullValue(block.input)
+      };
+      entries.push(entry);
+      const id = textValue(block.id);
+      if (id) pendingTools.set(id, entry);
+      break;
+    }
+    case "tool_result": {
+      flushText();
+      const id = textValue(block.tool_use_id) || textValue(block.id);
+      const output = claudeToolResultText(block.content);
+      const status = block.is_error ? "error" : "completed";
+      const pending = pendingTools.get(id);
+      if (pending) {
+        pending.output = pending.output ? pending.output + "\\n\\n" + output : output;
+        pending.output_bytes = byteLengthInBrowser(pending.output || "");
+        pending.status = status;
+      } else {
+        entries.push({ kind: "tool", timestamp, tool: "tool_result", status, output, output_bytes: byteLengthInBrowser(output) });
+      }
+      break;
+    }
+    default:
+      break;
+    }
+  }
+  flushText();
+}
+
+function claudeToolResultText(content) {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return fullValue(content);
+  const parts = [];
+  for (const value of content) {
+    const block = objectRecord(value);
+    if (textValue(block.type) === "text" && textValue(block.text)) {
+      parts.push(textValue(block.text));
+    } else {
+      const rendered = fullValue(value);
+      if (rendered) parts.push(rendered);
+    }
+  }
+  return parts.join("\\n").trim();
+}
+
+function codexToolName(payload) {
+  let name = textValue(payload.name);
+  const namespace = textValue(payload.namespace);
+  if (namespace) name = namespace + "." + name;
+  return name || textValue(payload.type) || "tool";
+}
+
+function attachSkill(entries, skill) {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry.kind === "message" && entry.role === "user") {
+      entry.skills = (entry.skills || []).concat([skill]);
+      return;
+    }
+  }
+}
+
+function skillFromText(text) {
+  const value = String(text || "").trim();
+  if (!value.startsWith("<skill>")) return null;
+  return {
+    name: xmlTag(value, "name") || "skill",
+    path: xmlTag(value, "path"),
+    text: value
+  };
+}
+
+function xmlTag(text, tag) {
+  const open = "<" + tag + ">";
+  const close = "</" + tag + ">";
+  const start = String(text || "").indexOf(open);
+  if (start < 0) return "";
+  const bodyStart = start + open.length;
+  const end = String(text || "").indexOf(close, bodyStart);
+  return end >= 0 ? String(text || "").slice(bodyStart, end).trim() : "";
+}
+
+function isInternalText(text) {
+  const value = String(text || "").trim();
+  return value.startsWith("# AGENTS.md instructions for ") ||
+    value.startsWith("<codex_internal_context") ||
+    value.startsWith("<environment_context>") ||
+    value.startsWith("<INSTRUCTIONS>") ||
+    value.startsWith("<turn_aborted>") ||
+    value.startsWith("<skill>");
+}
+
+function imageAssetsFromCapsule(files) {
+  const bySource = new Map();
+  const manifest = readJSONFile(files, "codex/assets/images.json");
+  if (!manifest || !Array.isArray(manifest.images)) return { bySource };
+  for (const image of manifest.images) {
+    const sourcePath = textValue(image.source_path);
+    const zipPath = textValue(image.zip_path);
+    const mime = textValue(image.mime);
+    if (textValue(image.status) !== "copied" || !sourcePath || !zipPath || !files.has(zipPath) || !mime.startsWith("image/")) continue;
+    const content = files.get(zipPath);
+    bySource.set(sourcePath, {
+      src: "data:" + mime + ";base64," + bytesToBase64(content),
+      mime,
+      bytes: content.byteLength,
+      alt: textValue(image.original_name) || sourcePath
+    });
+  }
+  return { bySource };
+}
+
+function imagesForPaths(paths, imageAssets) {
+  const out = [];
+  const seen = new Set();
+  for (const path of paths) {
+    const image = imageAssets && imageAssets.bySource && imageAssets.bySource.get(path);
+    if (!image || seen.has(image.src)) continue;
+    seen.add(image.src);
+    out.push(image);
+  }
+  return out;
+}
+
+function imageTagPaths(text) {
+  const pattern = /<image\\b[^>]*\\bpath=(?:"([^"]+)"|'([^']+)')[^>]*>/g;
+  const paths = [];
+  let match;
+  while ((match = pattern.exec(String(text || ""))) !== null) paths.push(match[1] || match[2] || "");
+  return paths.filter(Boolean);
+}
+
+function dataImage(src, detail) {
+  if (!String(src || "").startsWith("data:image/")) return null;
+  const mimeEnd = src.indexOf(";");
+  const comma = src.indexOf(",");
+  const mime = mimeEnd > 5 ? src.slice(5, mimeEnd) : "image";
+  return {
+    src,
+    mime,
+    bytes: dataURLDecodedBytes(src),
+    alt: detail ? "uploaded image (" + detail + ")" : "uploaded image"
+  };
+}
+
+function dataURLDecodedBytes(src) {
+  const comma = String(src || "").indexOf(",");
+  if (comma < 0) return 0;
+  const payload = String(src || "").slice(comma + 1).replace(/\\s+/g, "");
+  return Math.max(0, Math.floor(payload.length * 3 / 4) - (payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0));
+}
+
+function parseJSONLines(bytes) {
+  const out = [];
+  for (const line of readTextFileBytes(bytes).split(/\\r?\\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      out.push(JSON.parse(trimmed));
+    } catch (_error) {
+    }
+  }
+  return out;
+}
+
+function readJSONFile(files, path) {
+  if (!files.has(path)) return null;
+  try {
+    return JSON.parse(readTextFileBytes(files.get(path)));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function readTextFileBytes(bytes) {
+  return new TextDecoder().decode(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+}
+
+function textValue(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function objectRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null) return value;
+  }
+  return null;
+}
+
+function fullValue(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value.trim();
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_error) {
+    return String(value).trim();
+  }
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function byteLengthInBrowser(value) {
+  return new TextEncoder().encode(String(value || "")).byteLength;
+}
+
 document.addEventListener("click", async (event) => {
+  const fullButton = event.target.closest("#load-full-transcript");
+  if (fullButton) {
+    await loadFullTranscript();
+    return;
+  }
   const button = event.target.closest("[data-copy]");
   if (!button) return;
   const node = $(button.dataset.copy);
@@ -1586,12 +2185,13 @@ async function boot() {
     const manifest = await response.json();
     renderManifestInfo(manifest);
     renderCommands(manifest.import || metadata.import);
+    const key = fragmentKey();
+    configureFullTranscriptAction(manifest, key);
     if (!manifest.preview) {
       $("counts").textContent = "旧版链接";
-      setStatus("这个旧版 Capsule 链接没有浏览器预览。agent 仍然可以把完整 session 导入到 Codex。", "warn");
+      setStatus("这个链接没有轻量预览；如果带有 #k，可以点击加载完整会话，或用 agent import。", "warn");
       return;
     }
-    const key = fragmentKey();
     if (!key) {
       $("counts").textContent = "缺少 key";
       setStatus("这个链接缺少 #k 解密 key。请使用 capsule export 生成的完整 URL。", "warn");
@@ -1599,7 +2199,11 @@ async function boot() {
     }
     const transcript = await decryptPreview(manifest.preview, key);
     renderTranscript(transcript);
-    setStatus("预览已在浏览器本地解密。页面内容只是预览，完整 session 可以通过 For Agents 里的命令恢复到你的 Codex 原生 UI。", "success");
+    if (transcript.truncated) {
+      setStatus("预览已在浏览器本地解密，但内容已截断。可以点击加载完整会话查看完整可见 transcript。", "warn");
+    } else {
+      setStatus("预览已在浏览器本地解密。需要完整可见 transcript 时，可以点击加载完整会话。", "success");
+    }
   } catch (error) {
     $("counts").textContent = "预览不可用";
     setStatus(error && error.message ? error.message : String(error), "error");
