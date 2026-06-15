@@ -22,13 +22,24 @@ command -v capsule
 capsule help
 ```
 
-If the user asked to export, share, import, restore, inspect, hand off, or verify a capsule and the CLI is missing, install it:
+If the user asked to export, share, import, restore, inspect, hand off, or verify a capsule and the CLI is missing, install the latest released binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh
+```
+
+This normal install path does not require Go. It downloads a platform archive
+from GitHub Releases, verifies `checksums.txt`, and installs `capsule` into
+`~/.local/bin` unless `INSTALL_DIR` is set.
+
+If the user explicitly asks to install from source for repository development,
+use Go:
 
 ```bash
 go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
 ```
 
-If `go` is missing or installation fails, report the exact blocker and do not invent a manual restore path.
+If installation fails, report the exact blocker and do not invent a manual restore path.
 
 ## Export Or Share
 

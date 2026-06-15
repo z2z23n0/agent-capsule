@@ -27,7 +27,7 @@ const (
 	AgentClaude   = "claude"
 	DefaultRepo   = "https://github.com/z2z23n0/agent-capsule"
 	DefaultSkill  = DefaultRepo + "/tree/main/skills/agent-capsule"
-	InstallCmd    = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main"
+	InstallCmd    = "curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh"
 )
 
 var RequiredFiles = []string{

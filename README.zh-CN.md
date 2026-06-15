@@ -26,9 +26,13 @@ Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会
 
 ## 安装
 
+安装 `capsule`：
+
 ```bash
-go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
+curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh
 ```
+
+如果安装后找不到 `capsule`，把 `~/.local/bin` 加到 `PATH`。
 
 ## Agent Skill
 

@@ -40,9 +40,14 @@ state.
 
 ## Install
 
+Install `capsule`:
+
 ```bash
-go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
+curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh
 ```
+
+If your shell cannot find `capsule` after installation, add `~/.local/bin` to
+your `PATH`.
 
 ## Agent skill
 

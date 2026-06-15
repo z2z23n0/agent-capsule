@@ -1,6 +1,6 @@
 const LINK_SCHEMA = "agent-capsule.link.v1";
 const GB = 1024 * 1024 * 1024;
-const DEFAULT_INSTALL_COMMAND = "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main";
+const DEFAULT_INSTALL_COMMAND = "curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh";
 const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
 const DEFAULT_SKILL_URL = "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule";
 const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";

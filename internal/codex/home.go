@@ -607,6 +607,9 @@ func isSelfExportSupportCommand(command string) bool {
 	case "command -v capsule", "which capsule", "capsule help", "capsule --help", "capsule -h":
 		return true
 	}
+	if strings.Contains(lower, "raw.githubusercontent.com/z2z23n0/agent-capsule") && strings.Contains(lower, "install.sh") {
+		return true
+	}
 	if strings.HasPrefix(lower, "go install ") && strings.Contains(lower, "github.com/z2z23n0/agent-capsule/cmd/capsule") {
 		return true
 	}

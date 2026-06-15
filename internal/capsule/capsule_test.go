@@ -50,7 +50,7 @@ func TestExportCreatesStandardZipWithAgentReadme(t *testing.T) {
 		}
 	}
 	readme := readZipFile(t, out, "AGENT_README.md")
-	if !strings.Contains(readme, "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main") {
+	if !strings.Contains(readme, InstallCmd) {
 		t.Fatalf("AGENT_README.md does not include install command:\n%s", readme)
 	}
 	if !strings.Contains(readme, DefaultSkill) {
