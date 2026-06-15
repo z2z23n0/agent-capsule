@@ -282,14 +282,6 @@ pixels, so review screenshots and uploaded images before sharing.
 Link sharing uploads encrypted bytes, but anyone with the full URL including
 `#k=...` can decrypt the capsule.
 
-## What Agent Capsule does not do
-
-Agent Capsule does not migrate provider credentials, auth sessions, cloud state,
-or API keys.
-
-It does not guarantee that encrypted reasoning blobs from one machine can be
-cryptographically continued on another machine.
-
 ## Development
 
 Run the Go tests:
