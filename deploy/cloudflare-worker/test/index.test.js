@@ -4,6 +4,7 @@ import test from "node:test";
 import worker, { BudgetGate } from "../src/index.js";
 
 const BASE_URL = "https://capsule.example";
+const DEFAULT_INSTALL_COMMAND = "curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh";
 
 test("anonymous upload/download happy path", async () => {
   const env = fakeEnv();
@@ -24,7 +25,7 @@ test("anonymous upload/download happy path", async () => {
   const manifestJSON = await manifest.json();
   assert.equal(manifestJSON.schema, "agent-capsule.link.v1");
   assert.equal(manifestJSON.bundle.url, BASE_URL + "/v1/shares/" + shareID + "/blob");
-  assert.equal(manifestJSON.import.install_command, "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main");
+  assert.equal(manifestJSON.import.install_command, DEFAULT_INSTALL_COMMAND);
 
   const downloaded = await worker.fetch(new Request(manifestJSON.bundle.url), env);
   assert.equal(downloaded.status, 200);
@@ -157,7 +158,7 @@ test("worker replaces uploaded import commands with official defaults", async ()
   const created = await upload.json();
   const manifestJSON = await (await worker.fetch(new Request(created.manifest_url), env)).json();
   assert.equal(manifestJSON.import.tool, "capsule");
-  assert.equal(manifestJSON.import.install_command, "go install github.com/z2z23n0/agent-capsule/cmd/capsule@main");
+  assert.equal(manifestJSON.import.install_command, DEFAULT_INSTALL_COMMAND);
   assert.equal(manifestJSON.import.execute_command, "capsule import \"<this-url>\" --target codex --target-cwd . --execute");
   assert.equal(manifestJSON.import.docs_url, "https://github.com/z2z23n0/agent-capsule");
   assert.equal(manifestJSON.import.skill_url, "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule");
@@ -224,7 +225,7 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.doesNotMatch(html, /restore-drawer/);
   assert.doesNotMatch(html, /agent-restore/);
   assert.match(html, /application\/agent-capsule\+json/);
-  assert.match(html, /go install github\.com\/z2z23n0\/agent-capsule\/cmd\/capsule@main/);
+  assert.match(html, /raw\.githubusercontent\.com\/z2z23n0\/agent-capsule\/main\/install\.sh/);
   assert.match(html, /skills\/agent-capsule/);
   const pageScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
   assert.equal(pageScripts.length, 1);
