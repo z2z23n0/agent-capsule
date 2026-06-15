@@ -5,11 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/z2z23n0/agent-capsule/internal/capsule"
 	"github.com/z2z23n0/agent-capsule/internal/claude"
+	"github.com/z2z23n0/agent-capsule/internal/codex"
 )
+
+var launchCodexThread = defaultLaunchCodexThread
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -140,6 +145,7 @@ func runImport(args []string) error {
 	if err != nil {
 		return err
 	}
+	maybeLaunchImportedCodexThread(*target, *execute, result)
 	return printJSON(result)
 }
 
@@ -208,6 +214,26 @@ func printJSON(value any) error {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	return enc.Encode(value)
+}
+
+func maybeLaunchImportedCodexThread(target string, execute bool, result any) {
+	if !execute || !strings.EqualFold(strings.TrimSpace(target), "codex") {
+		return
+	}
+	restored, ok := result.(*codex.RestoreResult)
+	if !ok || restored.ThreadID == "" || restored.DryRun || restored.Status != "ok" {
+		return
+	}
+	if err := launchCodexThread(restored.ThreadID); err != nil {
+		fmt.Fprintf(os.Stderr, "capsule: warning: imported thread %s but failed to open Codex App: %v\n", restored.ThreadID, err)
+	}
+}
+
+func defaultLaunchCodexThread(threadID string) error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	return exec.Command("open", "codex://threads/"+threadID).Run()
 }
 
 func usage() {
