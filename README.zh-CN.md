@@ -26,25 +26,13 @@ Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会
 
 ## 安装
 
-普通用户不需要安装 Go，直接安装最新 release 二进制：
+安装 `capsule`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh
 ```
 
-安装脚本会从 GitHub Releases 下载当前系统匹配的归档，校验
-`checksums.txt`，并默认把 `capsule` 写到 `~/.local/bin`。如果要换目录，
-可以用 `INSTALL_DIR=/usr/local/bin`；如果要固定版本，可以用
-`CAPSULE_VERSION=v0.1.0`。
-
-也可以直接从 [Releases](https://github.com/z2z23n0/agent-capsule/releases)
-下载平台归档。
-
-如果是在开发源码，再用 Go 安装：
-
-```bash
-go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
-```
+如果安装后找不到 `capsule`，把 `~/.local/bin` 加到 `PATH`。
 
 ## Agent Skill
 

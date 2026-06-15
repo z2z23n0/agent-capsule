@@ -40,25 +40,14 @@ state.
 
 ## Install
 
-Most users do not need Go. Install the latest released binary:
+Install `capsule`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh
 ```
 
-The installer downloads the matching archive from GitHub Releases, verifies
-`checksums.txt`, and writes `capsule` to `~/.local/bin` by default. Use
-`INSTALL_DIR=/usr/local/bin` to choose another directory, or
-`CAPSULE_VERSION=v0.1.0` to pin a release.
-
-You can also download a platform archive directly from
-[Releases](https://github.com/z2z23n0/agent-capsule/releases).
-
-For source development, install from Go:
-
-```bash
-go install github.com/z2z23n0/agent-capsule/cmd/capsule@main
-```
+If your shell cannot find `capsule` after installation, add `~/.local/bin` to
+your `PATH`.
 
 ## Agent skill
 
