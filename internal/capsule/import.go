@@ -146,6 +146,7 @@ func codexSessionFromNeutral(transcript neutral.Transcript) ([]byte, error) {
 		cwd = "."
 	}
 	now := time.Now().UTC()
+	metaTimestamp := fallbackString(transcript.CreatedAt, now.Format(time.RFC3339Nano))
 	var lines []string
 	add := func(value map[string]any) error {
 		payload, err := json.Marshal(value)
@@ -156,11 +157,11 @@ func codexSessionFromNeutral(transcript neutral.Transcript) ([]byte, error) {
 		return nil
 	}
 	if err := add(map[string]any{
-		"timestamp": now.Format(time.RFC3339Nano),
+		"timestamp": metaTimestamp,
 		"type":      "session_meta",
 		"payload": map[string]any{
 			"id":             sourceID,
-			"timestamp":      now.Format(time.RFC3339Nano),
+			"timestamp":      metaTimestamp,
 			"cwd":            cwd,
 			"cli_version":    "agent-capsule",
 			"source":         "agent-capsule",
@@ -171,19 +172,70 @@ func codexSessionFromNeutral(transcript neutral.Transcript) ([]byte, error) {
 		return nil, err
 	}
 	if err := add(map[string]any{
-		"timestamp": now.Format(time.RFC3339Nano),
+		"timestamp": metaTimestamp,
 		"type":      "turn_context",
 		"payload":   map[string]any{"cwd": cwd, "approval_policy": "never"},
 	}); err != nil {
 		return nil, err
 	}
+	currentTurnID := ""
+	responseItemBytes := 0
+	lastVisibleTokens := int64(0)
+	userTurnCount := 0
 	for i, entry := range transcript.Entries {
-		timestamp := now.Add(time.Duration(i+1) * time.Second).Format(time.RFC3339Nano)
+		timestamp := neutralEntryTimestamp(entry, now, i)
 		switch entry.Kind {
 		case "message":
 			role := entry.Role
+			if role == "assistant" && currentTurnID == "" {
+				continue
+			}
 			if role != "assistant" {
 				role = "user"
+			}
+			if role == "user" {
+				responseItemBytes += len(entry.Text)
+				lastVisibleTokens = approxTokens(responseItemBytes)
+				if currentTurnID != "" {
+					if err := add(turnCompleteItem(timestamp, currentTurnID)); err != nil {
+						return nil, err
+					}
+				}
+				userTurnCount++
+				currentTurnID = fmt.Sprintf("agent-capsule-import-turn-%d", userTurnCount)
+				if err := add(map[string]any{
+					"timestamp": timestamp,
+					"type":      "event_msg",
+					"payload": map[string]any{
+						"type":    "task_started",
+						"turn_id": currentTurnID,
+					},
+				}); err != nil {
+					return nil, err
+				}
+				if err := add(map[string]any{
+					"timestamp": timestamp,
+					"type":      "event_msg",
+					"payload": map[string]any{
+						"type":    "user_message",
+						"message": entry.Text,
+					},
+				}); err != nil {
+					return nil, err
+				}
+			} else {
+				responseItemBytes += len(entry.Text)
+				lastVisibleTokens = approxTokens(responseItemBytes)
+				if err := add(map[string]any{
+					"timestamp": timestamp,
+					"type":      "event_msg",
+					"payload": map[string]any{
+						"type":    "agent_message",
+						"message": entry.Text,
+					},
+				}); err != nil {
+					return nil, err
+				}
 			}
 			contentType := "input_text"
 			key := "text"
@@ -204,6 +256,9 @@ func codexSessionFromNeutral(transcript neutral.Transcript) ([]byte, error) {
 				return nil, err
 			}
 		case "tool":
+			if currentTurnID == "" {
+				continue
+			}
 			callID := fmt.Sprintf("agent_capsule_tool_%03d", i)
 			if err := add(map[string]any{
 				"timestamp": timestamp,
@@ -233,7 +288,65 @@ func codexSessionFromNeutral(transcript neutral.Transcript) ([]byte, error) {
 			}
 		}
 	}
+	if currentTurnID != "" {
+		importedAt := now.Add(time.Duration(len(transcript.Entries)+1) * time.Second).Format(time.RFC3339Nano)
+		if err := add(map[string]any{
+			"timestamp": importedAt,
+			"type":      "event_msg",
+			"payload": map[string]any{
+				"type":    "agent_message",
+				"message": "<EXTERNAL SESSION IMPORTED>",
+			},
+		}); err != nil {
+			return nil, err
+		}
+		if err := add(map[string]any{
+			"timestamp": importedAt,
+			"type":      "event_msg",
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{"total_tokens": lastVisibleTokens},
+					"last_token_usage":  map[string]any{"total_tokens": lastVisibleTokens},
+				},
+			},
+		}); err != nil {
+			return nil, err
+		}
+		if err := add(turnCompleteItem(importedAt, currentTurnID)); err != nil {
+			return nil, err
+		}
+	}
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
+}
+
+func neutralEntryTimestamp(entry neutral.Entry, fallback time.Time, offset int) string {
+	if strings.TrimSpace(entry.Timestamp) != "" {
+		return entry.Timestamp
+	}
+	return fallback.Add(time.Duration(offset+1) * time.Second).Format(time.RFC3339Nano)
+}
+
+func turnCompleteItem(timestamp, turnID string) map[string]any {
+	return map[string]any{
+		"timestamp": timestamp,
+		"type":      "event_msg",
+		"payload": map[string]any{
+			"type":    "task_complete",
+			"turn_id": turnID,
+		},
+	}
+}
+
+func approxTokens(bytes int) int64 {
+	if bytes <= 0 {
+		return 0
+	}
+	tokens := int64((bytes + 3) / 4)
+	if tokens < 1 {
+		return 1
+	}
+	return tokens
 }
 
 func writeCodexSidecar(home, threadID string, rawSource []byte, transcript neutral.Transcript, manifestPayload []byte, execute bool) (string, []string, error) {

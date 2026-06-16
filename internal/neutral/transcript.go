@@ -12,6 +12,13 @@ import (
 
 const Schema = "agent-capsule.neutral.v1"
 
+const (
+	externalAgentToolCallTag   = "external_agent_tool_call"
+	externalAgentToolResultTag = "external_agent_tool_result"
+	toolCallNoteMaxLen         = 2000
+	toolResultNoteMaxLen       = 4000
+)
+
 type Transcript struct {
 	Schema      string  `json:"schema"`
 	SourceAgent string  `json:"source_agent"`
@@ -144,7 +151,14 @@ func FromClaudeSession(sourceID, title, sourceCWD string, session []byte) Transc
 		if out.SourceCWD == "" {
 			out.SourceCWD = stringValue(item["cwd"])
 		}
-		if boolValue(item["isMeta"]) {
+		if title := titleFromClaudeRecord(item, "custom-title", "customTitle"); title != "" {
+			out.Title = title
+			continue
+		}
+		if out.Title == "" {
+			out.Title = titleFromClaudeRecord(item, "ai-title", "aiTitle")
+		}
+		if boolValue(item["isMeta"]) || boolValue(item["isSidechain"]) {
 			continue
 		}
 		timestamp := stringValue(item["timestamp"])
@@ -155,12 +169,14 @@ func FromClaudeSession(sourceID, title, sourceCWD string, session []byte) Transc
 			if role == "" {
 				role = stringValue(item["type"])
 			}
-			if role != "user" && role != "assistant" {
-				continue
-			}
-			text := extractClaudeContent(message["content"])
+			text, onlyToolResult := extractClaudeMessage(message["content"])
 			if text == "" || hiddenMessage(text) {
 				continue
+			}
+			if role == "assistant" || onlyToolResult {
+				role = "assistant"
+			} else {
+				role = "user"
 			}
 			out.Entries = append(out.Entries, Entry{Kind: "message", Timestamp: timestamp, Role: role, Text: text})
 		case "attachment", "file-history-snapshot":
@@ -225,7 +241,75 @@ func extractCodexMessageText(content any) string {
 	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
-func extractClaudeContent(content any) string {
+func extractClaudeMessage(content any) (string, bool) {
+	switch value := content.(type) {
+	case string:
+		return strings.TrimSpace(value), false
+	case []any:
+		var parts []string
+		onlyToolResult := len(value) > 0
+		for _, item := range value {
+			m, _ := item.(map[string]any)
+			switch stringValue(m["type"]) {
+			case "text":
+				if text := stringValue(m["text"]); text != "" {
+					parts = append(parts, text)
+					onlyToolResult = false
+				}
+			case "tool_use":
+				parts = append(parts, claudeToolCallNote(m))
+				onlyToolResult = false
+			case "tool_result":
+				parts = append(parts, claudeToolResultNote(m))
+			case "thinking":
+			case "":
+			default:
+				parts = append(parts, "[external unsupported block: "+stringValue(m["type"])+"]")
+				onlyToolResult = false
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, "\n\n")), onlyToolResult
+	default:
+		return "", false
+	}
+}
+
+func claudeToolCallNote(block map[string]any) string {
+	name := fallbackString(stringValue(block["name"]), "unknown")
+	lines := []string{fmt.Sprintf("[%s: %s]", externalAgentToolCallTag, name)}
+	if input, ok := block["input"].(map[string]any); ok {
+		if description := stringValue(input["description"]); description != "" {
+			lines = append(lines, "description: "+description)
+		}
+		if command := stringValue(input["command"]); command != "" {
+			lines = append(lines, "command: "+command)
+		}
+		if file := stringValue(firstNonNil(input["file_path"], input["file"])); file != "" {
+			lines = append(lines, "file: "+file)
+		}
+		if len(lines) == 1 {
+			lines = append(lines, "input: "+clip(previewValue(input), toolCallNoteMaxLen))
+		}
+	} else if input := previewValue(block["input"]); input != "" {
+		lines = append(lines, "input: "+clip(input, toolCallNoteMaxLen))
+	}
+	lines = append(lines, fmt.Sprintf("[/%s]", externalAgentToolCallTag))
+	return strings.Join(lines, "\n")
+}
+
+func claudeToolResultNote(block map[string]any) string {
+	label := "[" + externalAgentToolResultTag + "]"
+	if boolValue(block["is_error"]) {
+		label = "[" + externalAgentToolResultTag + ": error]"
+	}
+	text := claudeToolResultText(block["content"])
+	if text == "" {
+		return label + "\n[/" + externalAgentToolResultTag + "]"
+	}
+	return label + "\n" + clip(text, toolResultNoteMaxLen) + "\n[/" + externalAgentToolResultTag + "]"
+}
+
+func claudeToolResultText(content any) string {
 	switch value := content.(type) {
 	case string:
 		return strings.TrimSpace(value)
@@ -233,15 +317,8 @@ func extractClaudeContent(content any) string {
 		var parts []string
 		for _, item := range value {
 			m, _ := item.(map[string]any)
-			switch stringValue(m["type"]) {
-			case "text":
-				if text := stringValue(m["text"]); text != "" {
-					parts = append(parts, text)
-				}
-			case "tool_use":
-				parts = append(parts, "tool_use "+stringValue(m["name"])+": "+previewValue(m["input"]))
-			case "tool_result":
-				parts = append(parts, "tool_result: "+previewValue(m["content"]))
+			if text := stringValue(m["text"]); text != "" {
+				parts = append(parts, text)
 			}
 		}
 		return strings.TrimSpace(strings.Join(parts, "\n"))
@@ -305,6 +382,24 @@ func fallbackString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func titleFromClaudeRecord(record map[string]any, recordType, field string) string {
+	if stringValue(record["type"]) != recordType {
+		return ""
+	}
+	return strings.TrimSpace(stringValue(record[field]))
+}
+
+func clip(text string, max int) string {
+	if max <= 0 || len([]rune(text)) <= max {
+		return text
+	}
+	runes := []rune(text)
+	if max <= 3 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-3]) + "..."
 }
 
 func stringValue(value any) string {
