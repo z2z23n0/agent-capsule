@@ -18,7 +18,7 @@ Agent Capsule 会把这段会话打包成一个可以一键导入的胶囊。接
 
 ## 当前状态
 
-Agent Capsule 目前支持 Codex 和 Claude Code 的导出/导入，也支持 Codex <-> Claude Code 的跨 agent handoff。
+Agent Capsule 目前支持 Codex 和 Claude Code 的导出/导入，也支持通过分享链接和 zip 胶囊进行跨 agent artifact 导入。
 
 Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会打包任意非图片文件。
 
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.
 ## Agent Skill
 
 Agent 可以选择安装 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md)。
-这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入、怎么执行本地 Codex <-> Claude Code handoff。
+这个 skill 会告诉 agent 什么时候安装 CLI、怎么导出或分享会话、怎么检查后在用户批准时导入，以及怎么验证恢复后的会话。
 
 胶囊文件和链接不依赖这个 skill。它们会自带给 agent 看的自举说明，所以接收方 agent 即使没有预装 skill，也能理解操作、安装 CLI、检查胶囊、导入到本地原生 Codex / Claude Code UI/UX，并验证新 thread/session。
 
@@ -96,23 +96,6 @@ capsule import handoff-topic.capsule.zip --target claude --target-cwd . --execut
 ```bash
 capsule verify --target codex --home ~/.codex --thread <new-thread-id> --target-cwd .
 capsule verify --target claude --home ~/.claude --thread <new-session-id> --target-cwd .
-```
-
-## 本地快速 handoff
-
-同一台机器上的交接可以用 `capsule handoff` 读取源 agent 的本地历史，并直接写入一个新的目标原生 thread/session：
-
-```bash
-capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute
-capsule handoff --from claude --to codex --source-thread current --target-cwd . --execute
-```
-
-去掉 `--execute` 就是 dry-run。Local handoff 仍会运行 secret scan，但因为没有创建分享产物，高置信命中只作为 warning 返回，不阻断 handoff。
-
-如果直接写入 Claude Code history 还需要本地 Claude runtime 接手，结果里会给出精确 fallback 命令，例如：
-
-```bash
-cd "<target-cwd>" && claude --session-id <new-session-id>
 ```
 
 ## 隐私承诺

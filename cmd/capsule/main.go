@@ -35,8 +35,6 @@ func run(args []string) error {
 		return runInspect(args[1:])
 	case "import", "restore":
 		return runImport(args[1:])
-	case "handoff":
-		return runHandoff(args[1:])
 	case "verify":
 		return runVerify(args[1:])
 	case "help", "-h", "--help":
@@ -149,38 +147,6 @@ func runImport(args []string) error {
 	return printJSON(result)
 }
 
-func runHandoff(args []string) error {
-	fs := flag.NewFlagSet("handoff", flag.ExitOnError)
-	from := fs.String("from", "auto", "source agent: auto, codex, or claude")
-	to := fs.String("to", "", "target agent: codex or claude")
-	sourceThread := fs.String("source-thread", "current", "source session/thread id, or current")
-	sourceHome := fs.String("source-home", "", "source agent home")
-	targetHome := fs.String("target-home", "", "target agent home")
-	targetCWD := fs.String("target-cwd", "", "target cwd (defaults to current directory)")
-	execute := fs.Bool("execute", false, "write the handoff into local target agent history")
-	allowModelCall := fs.Bool("allow-model-call", false, "allow CLI fallback paths that may call a model")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *to == "" {
-		return fmt.Errorf("missing --to")
-	}
-	result, err := capsule.Handoff(capsule.HandoffOptions{
-		From:           *from,
-		To:             *to,
-		SourceHome:     *sourceHome,
-		TargetHome:     *targetHome,
-		SourceThread:   *sourceThread,
-		TargetCWD:      *targetCWD,
-		Execute:        *execute,
-		AllowModelCall: *allowModelCall,
-	})
-	if err != nil {
-		return err
-	}
-	return printJSON(result)
-}
-
 func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	target := fs.String("target", "codex", "target agent: codex or claude")
@@ -237,7 +203,7 @@ func defaultLaunchCodexThread(threadID string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `capsule exports, imports, and hands off local coding-agent sessions.
+	fmt.Fprintln(os.Stderr, `capsule exports and imports local coding-agent sessions.
 
 Usage:
   capsule export --source codex --thread current
@@ -249,8 +215,6 @@ Usage:
   capsule import session.capsule.zip --target codex --target-cwd . --execute
   capsule import session.capsule.zip --target claude --target-cwd . --execute
   capsule import "https://example.workers.dev/s/share-id#k=..." --target codex --target-cwd . --execute
-  capsule handoff --from codex --to claude --target-cwd . --execute
-  capsule handoff --from claude --to codex --target-cwd . --execute
   capsule verify --target codex --home ~/.codex --thread <thread-id> --target-cwd .
   capsule verify --target claude --home ~/.claude --thread <session-id> --target-cwd .`)
 }
