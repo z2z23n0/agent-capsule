@@ -17,6 +17,13 @@ func TestShareCommandRemoved(t *testing.T) {
 	}
 }
 
+func TestHandoffCommandRemoved(t *testing.T) {
+	err := run([]string{"handoff"})
+	if err == nil || !strings.Contains(err.Error(), `unknown command "handoff"`) {
+		t.Fatalf("expected handoff to be removed, got %v", err)
+	}
+}
+
 func TestImportCommandOpensRestoredCodexThread(t *testing.T) {
 	sourceHome, threadID := createFakeCodexHome(t)
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")

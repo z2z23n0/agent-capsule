@@ -1,15 +1,16 @@
 ---
 name: agent-capsule
-description: Use when an agent needs to install or use Agent Capsule to export, share, inspect, import, restore, hand off, or verify Codex and Claude Code sessions, `.capsule.zip` files, encrypted Agent Capsule links, or same-machine cross-agent handoffs. Covers CLI setup, sender workflows, receiver bootstrap, approved import into local agent history, import-as-new semantics, secret-scan handling, and verification.
+description: Use when an agent needs to install or use Agent Capsule to export, share, inspect, import, restore, or verify Codex and Claude Code session capsules, `.capsule.zip` files, or encrypted Agent Capsule links. Covers CLI setup, sender workflows, receiver bootstrap, approved import into local agent history, import-as-new semantics, secret-scan handling, and verification.
 ---
 
 # Agent Capsule
 
 ## Overview
 
-Agent Capsule is a CLI and capsule format for sharing coding agent sessions and
-handing them off across local agent runtimes. Use this skill as the agent-facing
-operating guide; do not reimplement the capsule format in the prompt.
+Agent Capsule is a CLI and capsule format for sharing coding agent sessions
+across machines or agent runtimes through capsule artifacts. Use this skill as
+the agent-facing operating guide; do not reimplement the capsule format in the
+prompt.
 
 The CLI is the source of truth. A `.capsule.zip` or share link must remain self-bootstrapping for agents that do not have this skill installed.
 
@@ -22,7 +23,7 @@ command -v capsule
 capsule help
 ```
 
-If the user asked to export, share, import, restore, inspect, hand off, or verify a capsule and the CLI is missing, install the latest released binary:
+If the user asked to export, share, import, restore, inspect, or verify a capsule and the CLI is missing, install the latest released binary:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh
@@ -102,36 +103,6 @@ Codex -> Codex restores a new Codex thread, and Claude -> Claude rewrites the
 Claude JSONL into a new `sessionId` under the target Claude project. Cross-agent
 artifact import preserves visible messages, tool evidence, working context, and
 a raw source sidecar under the target agent home.
-
-## Local Fast Handoff
-
-When the user asks for a local cross-agent handoff, use `capsule handoff`
-instead of creating a share link or zip. This reads the source agent's local
-history and writes the target agent's native history directly:
-
-```bash
-capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute
-capsule handoff --from claude --to codex --source-thread current --target-cwd . --execute
-```
-
-If the source agent is obvious from the current runtime, `--from auto` is
-acceptable:
-
-```bash
-capsule handoff --from auto --to claude --source-thread current --target-cwd . --execute
-```
-
-When the user explicitly asks for handoff/import and the target is local, the
-agent may use `--execute` automatically and then verify. Omit `--execute` only
-when the user asks for a dry-run or preview.
-
-Local handoff still scans the source transcript for high-confidence secrets, but
-findings are warnings rather than blockers because no share artifact is created.
-Artifact export remains blocking unless the user explicitly approves
-`--unsafe-include-secrets`.
-
-Do not pass `--allow-model-call` unless the user explicitly approves a fallback
-that may invoke a paid model through the target agent CLI.
 
 ## Open Or Resume Result
 
@@ -213,4 +184,4 @@ continued in another runtime.
 
 Do not write to local agent history without `--execute` and explicit user
 approval, except when the user has directly asked this agent to perform a local
-handoff/import and verification.
+import and verification.

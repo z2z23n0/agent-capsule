@@ -26,8 +26,8 @@ restore it into their own agent and keep working.
 
 ## Status
 
-Agent Capsule currently supports Codex and Claude Code export/import, plus
-Codex <-> Claude Code cross-agent handoff.
+Agent Capsule currently supports Codex and Claude Code export/import, including
+cross-agent artifact imports through share links and zip capsules.
 
 Codex image uploads referenced by a session are preserved. Agent Capsule does
 not package arbitrary non-image files yet.
@@ -54,8 +54,7 @@ your `PATH`.
 Agents can optionally install the Agent Capsule skill from
 [`skills/agent-capsule`](skills/agent-capsule/SKILL.md). The skill teaches the
 agent when to install the CLI, how to export or share a session, how to import
-after inspection and explicit approval, how to perform local Codex <-> Claude
-Code handoffs.
+after inspection and explicit approval, and how to verify restored sessions.
 
 Capsule files and links do not depend on the skill. They include agent-facing
 bootstrap instructions so a receiving agent can understand the workflow, install
@@ -125,27 +124,6 @@ Verify the imported thread/session:
 ```bash
 capsule verify --target codex --home ~/.codex --thread <new-thread-id> --target-cwd .
 capsule verify --target claude --home ~/.claude --thread <new-session-id> --target-cwd .
-```
-
-## Local fast handoff
-
-For same-machine handoffs, `capsule handoff` reads the source agent's local
-history and writes a new native target thread/session directly:
-
-```bash
-capsule handoff --from codex --to claude --source-thread current --target-cwd . --execute
-capsule handoff --from claude --to codex --source-thread current --target-cwd . --execute
-```
-
-Use dry-run by omitting `--execute`. Local handoff still runs the secret scan,
-but high-confidence findings are reported as warnings instead of blocking,
-because no share artifact is created.
-
-When writing Claude Code history directly is not enough for the local Claude
-runtime, the result includes a precise fallback command such as:
-
-```bash
-cd "<target-cwd>" && claude --session-id <new-session-id>
 ```
 
 ## Privacy commitments

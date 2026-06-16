@@ -26,31 +26,6 @@ type ImportOptions struct {
 	AllowModelCall bool
 }
 
-type HandoffOptions struct {
-	From           string
-	To             string
-	SourceHome     string
-	TargetHome     string
-	SourceThread   string
-	TargetCWD      string
-	Execute        bool
-	AllowModelCall bool
-}
-
-type HandoffResult struct {
-	Status     string     `json:"status"`
-	From       string     `json:"from"`
-	To         string     `json:"to"`
-	SourceID   string     `json:"source_id"`
-	TargetID   string     `json:"target_id,omitempty"`
-	TargetHome string     `json:"target_home,omitempty"`
-	TargetCWD  string     `json:"target_cwd,omitempty"`
-	Safety     SafetyScan `json:"safety"`
-	Result     any        `json:"result,omitempty"`
-	Warnings   []string   `json:"warnings,omitempty"`
-	DryRun     bool       `json:"dry_run"`
-}
-
 func ImportAny(source string, opts ImportOptions) (any, error) {
 	if isHTTPURL(source) {
 		return ImportFromURL(source, opts)
@@ -73,94 +48,6 @@ func ImportFromURL(rawURL string, opts ImportOptions) (any, error) {
 	}
 	defer os.Remove(tempPath)
 	return Import(tempPath, opts)
-}
-
-func Handoff(opts HandoffOptions) (*HandoffResult, error) {
-	from := normalizeAgent(opts.From, "auto")
-	if from == "auto" {
-		from = detectSourceAgent(opts)
-	}
-	to := normalizeAgent(opts.To, "")
-	if to == "" {
-		return nil, errors.New("missing target agent")
-	}
-	result := &HandoffResult{
-		Status: "planned",
-		From:   from,
-		To:     to,
-		DryRun: !opts.Execute,
-	}
-	switch from {
-	case AgentCodex:
-		sourceHome, err := codex.ResolveHome(opts.SourceHome)
-		if err != nil {
-			return nil, err
-		}
-		threadID, err := codex.ResolveThreadID(sourceHome, opts.SourceThread)
-		if err != nil {
-			return nil, err
-		}
-		data, err := codex.ExportThreadWithOptions(sourceHome, threadID, codex.ExportThreadOptions{
-			DropSelfExportTurn: shouldDropSelfExportTurn(opts.SourceThread, threadID),
-		})
-		if err != nil {
-			return nil, err
-		}
-		transcript := neutral.FromCodexSession(data.ThreadID, data.Title, data.SourceCWD, data.SessionBytes)
-		result.SourceID = data.ThreadID
-		result.Safety = ScanSecrets(data.SessionBytes)
-		if len(result.Safety.Findings) > 0 {
-			result.Warnings = append(result.Warnings, "source session contains high-confidence secret scan findings; local handoff continued without creating a share artifact")
-		}
-		restored, err := restoreDirectToTarget(to, opts, directPayload{
-			SourceAgent: AgentCodex,
-			SourceID:    data.ThreadID,
-			Title:       data.Title,
-			Raw:         data.SessionBytes,
-			Neutral:     transcript,
-			CodexData:   data,
-		})
-		if err != nil {
-			return nil, err
-		}
-		result.Result = restored
-		result.Status, result.TargetID, result.TargetHome, result.TargetCWD = resultFields(restored)
-		return result, nil
-	case AgentClaude:
-		data, err := claude.ExportSession(claude.ExportOptions{Home: opts.SourceHome, Session: opts.SourceThread})
-		if err != nil {
-			return nil, err
-		}
-		result.SourceID = data.SessionID
-		result.Safety = ScanSecrets(data.SessionBytes)
-		if len(result.Safety.Findings) > 0 {
-			result.Warnings = append(result.Warnings, "source session contains high-confidence secret scan findings; local handoff continued without creating a share artifact")
-		}
-		restored, err := restoreDirectToTarget(to, opts, directPayload{
-			SourceAgent: AgentClaude,
-			SourceID:    data.SessionID,
-			Title:       data.Title,
-			Raw:         data.SessionBytes,
-			Neutral:     data.Neutral,
-		})
-		if err != nil {
-			return nil, err
-		}
-		result.Result = restored
-		result.Status, result.TargetID, result.TargetHome, result.TargetCWD = resultFields(restored)
-		return result, nil
-	default:
-		return nil, fmt.Errorf("unsupported source agent %q", from)
-	}
-}
-
-type directPayload struct {
-	SourceAgent string
-	SourceID    string
-	Title       string
-	Raw         []byte
-	Neutral     neutral.Transcript
-	CodexData   *codex.ExportData
 }
 
 func restoreLoaded(loaded *loadedCapsule, opts ImportOptions) (any, error) {
@@ -200,38 +87,6 @@ func restoreLoadedToClaude(loaded *loadedCapsule, opts claude.RestoreOptions) (*
 		input.RawSidecar = loaded.Session
 	}
 	return claude.RestoreSession(input, opts)
-}
-
-func restoreDirectToTarget(target string, opts HandoffOptions, payload directPayload) (any, error) {
-	switch target {
-	case AgentCodex:
-		if payload.SourceAgent == AgentCodex && payload.CodexData != nil {
-			input := codex.RestoreInput{
-				ThreadID:                  payload.CodexData.ThreadID,
-				Title:                     payload.CodexData.Title,
-				SourceSessionRelativePath: payload.CodexData.SourceSessionRelativePath,
-				SessionBytes:              payload.CodexData.SessionBytes,
-				IndexEntry:                payload.CodexData.IndexEntry,
-				ThreadRow:                 payload.CodexData.ThreadRow,
-			}
-			return codex.RestoreThread(input, codex.RestoreOptions{Home: opts.TargetHome, TargetCWD: opts.TargetCWD, Execute: opts.Execute})
-		}
-		return restoreCodexFromNeutral(payload.Neutral, payload.Raw, nil, codex.RestoreOptions{Home: opts.TargetHome, TargetCWD: opts.TargetCWD, Execute: opts.Execute})
-	case AgentClaude:
-		input := claude.RestoreInput{
-			SourceAgent: payload.SourceAgent,
-			SessionID:   payload.SourceID,
-			Title:       payload.Title,
-			Neutral:     payload.Neutral,
-			RawSidecar:  payload.Raw,
-		}
-		if payload.SourceAgent == AgentClaude {
-			input.SessionBytes = payload.Raw
-		}
-		return claude.RestoreSession(input, claude.RestoreOptions{Home: opts.TargetHome, TargetCWD: opts.TargetCWD, Execute: opts.Execute})
-	default:
-		return nil, fmt.Errorf("unsupported target agent %q", target)
-	}
 }
 
 func restoreCodexNative(loaded *loadedCapsule, opts codex.RestoreOptions) (*codex.RestoreResult, error) {
@@ -467,32 +322,6 @@ func downloadLinkedCapsule(rawURL string) (string, error) {
 		return "", err
 	}
 	return tempPath, nil
-}
-
-func detectSourceAgent(opts HandoffOptions) string {
-	if os.Getenv("CODEX_THREAD_ID") != "" || os.Getenv("CODEX_SESSION_ID") != "" {
-		return AgentCodex
-	}
-	if os.Getenv("CLAUDE_SESSION_ID") != "" || os.Getenv("CLAUDE_CODE_SESSION_ID") != "" {
-		return AgentClaude
-	}
-	if home, err := codex.ResolveHome(opts.SourceHome); err == nil {
-		if _, err := codex.ResolveThreadID(home, opts.SourceThread); err == nil {
-			return AgentCodex
-		}
-	}
-	return AgentClaude
-}
-
-func resultFields(value any) (status, id, home, cwd string) {
-	switch result := value.(type) {
-	case *codex.RestoreResult:
-		return result.Status, result.ThreadID, result.TargetHome, result.TargetCWD
-	case *claude.RestoreResult:
-		return result.Status, result.SessionID, result.TargetHome, result.TargetCWD
-	default:
-		return "ok", "", "", ""
-	}
 }
 
 func firstUserFromNeutral(transcript neutral.Transcript) string {
