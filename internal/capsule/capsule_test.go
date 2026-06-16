@@ -159,6 +159,67 @@ func TestClaudeLinkManifestDefaultsToClaudeImportTarget(t *testing.T) {
 	}
 }
 
+func TestClaudeArtifactImportToCodexUsesVisibleImportEvents(t *testing.T) {
+	sourceHome, sourceCWD := createFakeClaudeHome(t)
+	sessionPath := filepath.Join(sourceHome, "projects", claude.ProjectDirName(sourceCWD), testClaudeSessionID+".jsonl")
+	lines := []string{
+		`{"type":"queue-operation","operation":"enqueue","timestamp":"2026-06-11T00:00:00Z","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"type":"custom-title","customTitle":"Deploy investigation","timestamp":"2026-06-11T00:00:00Z","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Investigate the deploy failure"},"uuid":"5b00343b-dfbe-45cd-b6f6-60c04f157721","timestamp":"2026-06-11T00:00:01Z","cwd":"` + sourceCWD + `","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"parentUuid":"5b00343b-dfbe-45cd-b6f6-60c04f157721","isSidechain":false,"type":"assistant","uuid":"00c879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","timestamp":"2026-06-11T00:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect the deploy config."},{"type":"tool_use","name":"Bash","input":{"description":"search deploy config","command":"rg deploy"}}],"usage":{}},"cwd":"` + sourceCWD + `","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"parentUuid":"00c879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","isSidechain":false,"type":"user","uuid":"bbca879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","timestamp":"2026-06-11T00:00:03Z","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"deploy.yml: missing TOKEN"}]}]},"cwd":"` + sourceCWD + `","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"parentUuid":"bbca879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","isSidechain":true,"type":"user","uuid":"sidechain","timestamp":"2026-06-11T00:00:04Z","message":{"role":"user","content":"hidden sidechain note"},"cwd":"` + sourceCWD + `","sessionId":"` + testClaudeSessionID + `"}`,
+		`{"parentUuid":"bbca879d2-fe66-4e95-a1f1-5d9b1d4cc6a5","isSidechain":false,"type":"assistant","uuid":"final","timestamp":"2026-06-11T00:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"The deploy is missing TOKEN."}],"usage":{}},"cwd":"` + sourceCWD + `","sessionId":"` + testClaudeSessionID + `"}`,
+	}
+	if err := os.WriteFile(sessionPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "claude.capsule.zip")
+	if _, err := Export(ExportOptions{SourceAgent: AgentClaude, Home: sourceHome, Thread: testClaudeSessionID, Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	targetHome := createEmptyCodexHome(t)
+	targetCWD := filepath.Join(t.TempDir(), "codex-target")
+	if err := os.MkdirAll(targetCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	importedAny, err := Import(out, ImportOptions{Target: AgentCodex, Home: targetHome, TargetCWD: targetCWD, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, ok := importedAny.(*codex.RestoreResult)
+	if !ok {
+		t.Fatalf("import result type = %T", importedAny)
+	}
+	content, err := os.ReadFile(imported.TargetSessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := string(content)
+	for _, want := range []string{
+		`"type":"task_started"`,
+		`"type":"user_message"`,
+		`"type":"agent_message"`,
+		`"type":"token_count"`,
+		`"type":"task_complete"`,
+		"EXTERNAL SESSION IMPORTED",
+		"external_agent_tool_call",
+		"external_agent_tool_result",
+	} {
+		if !strings.Contains(session, want) {
+			t.Fatalf("imported Codex session missing %q:\n%s", want, session)
+		}
+	}
+	if strings.Contains(session, "hidden sidechain note") {
+		t.Fatalf("sidechain message leaked into imported Codex session:\n%s", session)
+	}
+	for _, message := range codexMessages(t, content) {
+		if message.Role == "user" && strings.Contains(message.Text, "external_agent_tool_result") {
+			t.Fatalf("pure Claude tool_result imported as user message: %+v", message)
+		}
+	}
+}
+
 func TestRestoreDryRunAndExecute(t *testing.T) {
 	sourceHome := createFakeCodexHome(t)
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")
@@ -1603,6 +1664,53 @@ func containsPathSegment(paths []string, segment string) bool {
 		}
 	}
 	return false
+}
+
+type testCodexMessage struct {
+	Role string
+	Text string
+}
+
+func codexMessages(t *testing.T, content []byte) []testCodexMessage {
+	t.Helper()
+	var out []testCodexMessage
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		var item map[string]any
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			t.Fatal(err)
+		}
+		if item["type"] != "response_item" {
+			continue
+		}
+		payload, _ := item["payload"].(map[string]any)
+		if payload["type"] != "message" {
+			continue
+		}
+		out = append(out, testCodexMessage{
+			Role: testStringValue(payload["role"]),
+			Text: codexMessageText(payload["content"]),
+		})
+	}
+	return out
+}
+
+func codexMessageText(content any) string {
+	items, _ := content.([]any)
+	var parts []string
+	for _, item := range items {
+		m, _ := item.(map[string]any)
+		for _, key := range []string{"text", "output_text"} {
+			if text := testStringValue(m[key]); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func testStringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func tinyPNG(t *testing.T) []byte {
