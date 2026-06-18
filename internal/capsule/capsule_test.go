@@ -578,17 +578,32 @@ func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	}
 	session := strings.Join([]string{
 		`{"timestamp":"2026-06-12T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\nsecret project instructions"}]}}`,
-		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"please inspect **this**"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions\n\n<INSTRUCTIONS>\nlocal-only project instructions"}]}}`,
+		`{"timestamp":"2026-06-12T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"call_hidden","arguments":"{\"cmd\":\"rg AGENTS\"}"}}`,
+		`{"timestamp":"2026-06-12T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_hidden","output":"before\n# AGENTS.md instructions\n\n<INSTRUCTIONS>\nsecret project instructions\n</INSTRUCTIONS>\nafter\n"}}`,
+		`{"timestamp":"2026-06-12T00:00:05Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"please inspect **this**"}]}}`,
 	}, "\n") + "\n"
 	transcript := buildPreviewTranscript(manifest, []byte(session))
 	if transcript.MessageCount != 1 {
 		t.Fatalf("message_count = %d", transcript.MessageCount)
 	}
-	if len(transcript.Entries) != 1 {
+	if transcript.ToolCount != 1 {
+		t.Fatalf("tool_count = %d", transcript.ToolCount)
+	}
+	if len(transcript.Entries) != 2 {
 		t.Fatalf("entries = %d", len(transcript.Entries))
 	}
-	if strings.Contains(transcript.Entries[0].Text, "AGENTS.md") {
-		t.Fatal("internal AGENTS.md context leaked into preview")
+	preview := previewEntriesText(transcript)
+	for _, leaked := range []string{"AGENTS.md", "<INSTRUCTIONS>", "secret project instructions", "local-only project instructions"} {
+		if strings.Contains(preview, leaked) {
+			t.Fatalf("internal context leaked %q into preview:\n%s", leaked, preview)
+		}
+	}
+	if !strings.Contains(transcript.Entries[0].Output, "[internal context omitted]") {
+		t.Fatalf("tool output missing redaction marker: %q", transcript.Entries[0].Output)
+	}
+	if !strings.Contains(transcript.Entries[0].Output, "before") || !strings.Contains(transcript.Entries[0].Output, "after") {
+		t.Fatalf("tool output lost surrounding text: %q", transcript.Entries[0].Output)
 	}
 }
 
