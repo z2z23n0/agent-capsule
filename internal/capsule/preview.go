@@ -254,7 +254,7 @@ func previewToolCall(timestamp string, payload map[string]any) PreviewEntry {
 	if input == nil {
 		input = payload["input"]
 	}
-	inputPreview, truncated := previewClip(previewValue(input), maxPreviewToolText)
+	inputPreview, truncated := previewClip(previewRedactHiddenContext(previewValue(input)), maxPreviewToolText)
 	status := previewString(payload["status"])
 	if status == "" {
 		status = "called"
@@ -401,14 +401,17 @@ func previewOutputText(value any) string {
 	if value == nil {
 		return ""
 	}
+	var text string
 	if text, ok := value.(string); ok {
-		return text
+		return previewRedactHiddenContext(text)
 	}
 	payload, err := json.Marshal(value)
 	if err != nil {
-		return strings.TrimSpace(fmt.Sprint(value))
+		text = strings.TrimSpace(fmt.Sprint(value))
+	} else {
+		text = string(payload)
 	}
-	return string(payload)
+	return previewRedactHiddenContext(text)
 }
 
 func previewValue(value any) string {
@@ -451,11 +454,90 @@ func previewInt64(value any) int64 {
 
 func previewHiddenMessage(text string) bool {
 	text = strings.TrimSpace(text)
-	return strings.HasPrefix(text, "# AGENTS.md instructions for ") ||
-		strings.HasPrefix(text, "<codex_internal_context") ||
-		strings.HasPrefix(text, "<environment_context>") ||
-		strings.HasPrefix(text, "<INSTRUCTIONS>") ||
-		strings.HasPrefix(text, "<skill>")
+	return previewStartsHiddenContext(text)
+}
+
+func previewRedactHiddenContext(text string) string {
+	if text == "" {
+		return ""
+	}
+	var b strings.Builder
+	inHiddenBlock := false
+	redactedPrevious := false
+	for _, part := range strings.SplitAfter(text, "\n") {
+		line := strings.TrimRight(part, "\r\n")
+		trimmed := strings.TrimSpace(line)
+		if inHiddenBlock {
+			if !redactedPrevious {
+				b.WriteString("[internal context omitted]\n")
+				redactedPrevious = true
+			}
+			if previewEndsHiddenContext(trimmed) {
+				inHiddenBlock = false
+			}
+			continue
+		}
+		if previewContainsHiddenContext(trimmed) {
+			if !redactedPrevious {
+				b.WriteString("[internal context omitted]\n")
+				redactedPrevious = true
+			}
+			if previewStartsHiddenContext(trimmed) && !previewEndsHiddenContext(trimmed) {
+				inHiddenBlock = true
+			}
+			continue
+		}
+		b.WriteString(part)
+		redactedPrevious = false
+	}
+	return b.String()
+}
+
+func previewContainsHiddenContext(text string) bool {
+	if previewStartsHiddenContext(text) {
+		return true
+	}
+	for _, marker := range []string{
+		"# AGENTS.md instructions",
+		"<codex_internal_context",
+		"<environment_context>",
+		"<INSTRUCTIONS>",
+		"<skill>",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func previewStartsHiddenContext(text string) bool {
+	for _, prefix := range []string{
+		"# AGENTS.md instructions",
+		"<codex_internal_context",
+		"<environment_context>",
+		"<INSTRUCTIONS>",
+		"<skill>",
+	} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func previewEndsHiddenContext(text string) bool {
+	for _, prefix := range []string{
+		"</codex_internal_context>",
+		"</environment_context>",
+		"</INSTRUCTIONS>",
+		"</skill>",
+	} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func previewClip(text string, max int) (string, bool) {
