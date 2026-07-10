@@ -151,15 +151,15 @@ func buildPreviewTranscript(manifest Manifest, session []byte, assets ...imageAs
 			if role != "user" && role != "assistant" {
 				continue
 			}
-			text, images, omitted := previewMessageContent(payload["content"], imageState)
-			if text == "" && len(images) == 0 && omitted == 0 {
+			rawText, text, images, omitted := previewMessageContent(payload["content"], imageState)
+			if rawText == "" && len(images) == 0 && omitted == 0 {
 				continue
 			}
-			if skill, ok := previewSkillMessage(text); ok {
+			if skill, ok := previewSkillMessage(rawText); ok {
 				attachPreviewSkill(&transcript, skill)
 				continue
 			}
-			if previewHiddenMessage(text) {
+			if text == "" && len(images) == 0 && omitted == 0 {
 				continue
 			}
 			clipped, truncated := previewClip(text, maxPreviewText)
@@ -278,12 +278,13 @@ type previewImageState struct {
 	MaxPayloadLen int
 }
 
-func previewMessageContent(content any, state *previewImageState) (string, []PreviewImage, int) {
+func previewMessageContent(content any, state *previewImageState) (string, string, []PreviewImage, int) {
 	items, ok := content.([]any)
 	if !ok {
-		return "", nil, 0
+		return "", "", nil, 0
 	}
-	var parts []string
+	var rawParts []string
+	var visibleParts []string
 	var tagPaths []string
 	var inputImages []PreviewImage
 	var images []PreviewImage
@@ -292,8 +293,11 @@ func previewMessageContent(content any, state *previewImageState) (string, []Pre
 		m, _ := item.(map[string]any)
 		for _, key := range []string{"text", "output_text"} {
 			if text := previewString(m[key]); text != "" {
-				parts = append(parts, text)
-				tagPaths = append(tagPaths, imageTagPaths(text)...)
+				rawParts = append(rawParts, text)
+				if visible := previewRedactMessage(text); visible != "" {
+					visibleParts = append(visibleParts, visible)
+					tagPaths = append(tagPaths, imageTagPaths(visible)...)
+				}
 			}
 		}
 		if previewString(m["type"]) == "input_image" {
@@ -325,7 +329,7 @@ func previewMessageContent(content any, state *previewImageState) (string, []Pre
 			}
 		}
 	}
-	return strings.TrimSpace(strings.Join(parts, "\n")), images, omitted
+	return strings.TrimSpace(strings.Join(rawParts, "\n")), strings.TrimSpace(strings.Join(visibleParts, "\n")), images, omitted
 }
 
 func previewImageAssets(assets []imageAssetFile) map[string]PreviewImage {
@@ -452,9 +456,12 @@ func previewInt64(value any) int64 {
 	}
 }
 
-func previewHiddenMessage(text string) bool {
-	text = strings.TrimSpace(text)
-	return previewStartsHiddenContext(text)
+func previewRedactMessage(text string) string {
+	text = strings.TrimSpace(previewRedactHiddenContext(text))
+	if text == "[internal context omitted]" {
+		return ""
+	}
+	return text
 }
 
 func previewRedactHiddenContext(text string) string {
@@ -499,6 +506,7 @@ func previewContainsHiddenContext(text string) bool {
 	}
 	for _, marker := range []string{
 		"# AGENTS.md instructions",
+		"<recommended_plugins>",
 		"<codex_internal_context",
 		"<environment_context>",
 		"<INSTRUCTIONS>",
@@ -514,6 +522,7 @@ func previewContainsHiddenContext(text string) bool {
 func previewStartsHiddenContext(text string) bool {
 	for _, prefix := range []string{
 		"# AGENTS.md instructions",
+		"<recommended_plugins>",
 		"<codex_internal_context",
 		"<environment_context>",
 		"<INSTRUCTIONS>",
@@ -528,6 +537,7 @@ func previewStartsHiddenContext(text string) bool {
 
 func previewEndsHiddenContext(text string) bool {
 	for _, prefix := range []string{
+		"</recommended_plugins>",
 		"</codex_internal_context>",
 		"</environment_context>",
 		"</INSTRUCTIONS>",

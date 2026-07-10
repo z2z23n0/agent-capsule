@@ -607,6 +607,45 @@ func TestPreviewTranscriptHidesInternalContextMessages(t *testing.T) {
 	}
 }
 
+func TestPreviewTranscriptRedactsInternalContextAcrossMessageParts(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-07-10T00:00:00Z",
+	}
+	session := strings.Join([]string{
+		`{"timestamp":"2026-07-10T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>\ninternal plugin instructions\n</recommended_plugins>"},{"type":"input_text","text":"# AGENTS.md instructions\n\n<INSTRUCTIONS>\nprivate project instructions\n</INSTRUCTIONS>"},{"type":"input_text","text":"<environment_context>\nprivate environment details\n</environment_context>"}]}}`,
+		`{"timestamp":"2026-07-10T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"visible before"},{"type":"input_text","text":"visible inline before\n# AGENTS.md instructions\n\n<INSTRUCTIONS>\nprivate nested instructions\n</INSTRUCTIONS>\nvisible inline after"},{"type":"input_text","text":"visible after"}]}}`,
+		`{"timestamp":"2026-07-10T00:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"actual user request"}]}}`,
+	}, "\n") + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session))
+	if transcript.MessageCount != 2 {
+		t.Fatalf("message_count = %d", transcript.MessageCount)
+	}
+	if len(transcript.Entries) != 2 {
+		t.Fatalf("entries = %d", len(transcript.Entries))
+	}
+	preview := previewEntriesText(transcript)
+	for _, leaked := range []string{
+		"recommended_plugins",
+		"internal plugin instructions",
+		"AGENTS.md",
+		"private project instructions",
+		"environment_context",
+		"private environment details",
+		"private nested instructions",
+	} {
+		if strings.Contains(preview, leaked) {
+			t.Fatalf("internal context leaked %q into preview:\n%s", leaked, preview)
+		}
+	}
+	for _, want := range []string{"visible before", "visible inline before", "[internal context omitted]", "visible inline after", "visible after", "actual user request"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("preview missing %q:\n%s", want, preview)
+		}
+	}
+}
+
 func TestPreviewTranscriptAttachesSkillMessages(t *testing.T) {
 	manifest := Manifest{
 		ThreadID:    testThreadID,
