@@ -3,7 +3,7 @@ const GB = 1024 * 1024 * 1024;
 const DEFAULT_INSTALL_COMMAND = "curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh";
 const DEFAULT_DOCS_URL = "https://github.com/z2z23n0/agent-capsule";
 const DEFAULT_SKILL_URL = "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule";
-const DEFAULT_EXECUTE_COMMAND = "capsule import \"<this-url>\" --target codex --target-cwd . --execute";
+const DEFAULT_IMPORT_TARGET = "codex";
 const AGENT_MANIFEST_CONTENT_TYPE = "application/agent-capsule+json; charset=utf-8";
 const AGENT_MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
 const SHARE_ACCEPT_VARY = "Accept";
@@ -11,6 +11,215 @@ const SHARE_AGENT_VARY = "Accept, User-Agent";
 const SHARE_ID_BYTES = 12;
 const SHARE_ID_MAX_ATTEMPTS = 5;
 const STORAGE_ID_BYTES = 12;
+
+const SHARE_PAGE_COPY = {
+  en: {
+    titleSuffix: "Agent Capsule preview",
+    previewAria: "Capsule preview",
+    previewKicker: "Capsule preview",
+    previewSubtitle: "This page decrypts a lightweight preview first. If it is incomplete, you can load the full visible conversation here or import the capsule into a native agent interface.",
+    waitingPreview: "Waiting for preview",
+    encryptedLink: "Encrypted link",
+    readingPreview: "Reading the encrypted preview from this link.",
+    previewDecryptFailed: "Could not decrypt the preview. Check that the URL includes the correct #k key.",
+    loadFullTranscript: "Load full conversation",
+    sessionPreviewAria: "Session preview",
+    agentsKicker: "FOR AGENTS",
+    restoreTitle: "Restore locally",
+    restoreCopy: "Choose Codex or Claude Code and import the complete session as a new native thread or session.",
+    languageLabel: "Language",
+    englishLanguage: "English",
+    chineseLanguage: "Chinese (Simplified)",
+    importTargetLabel: "Import target",
+    installLabel: "Install",
+    importLabel: "Import",
+    copyLabel: "Copy",
+    copiedLabel: "Copied",
+    expiresAt: "Expires {date}",
+    webCryptoUnavailable: "WebCrypto is unavailable in this browser.",
+    missingBundle: "This link does not include a complete bundle.",
+    bundleDownloadFailed: "Complete bundle download failed: {status}",
+    bundleSizeMismatch: "Complete bundle size does not match the manifest.",
+    bundleHashMismatch: "Complete bundle SHA-256 verification failed.",
+    bundleDecryptFailed: "Could not decrypt the complete bundle with this link's key.",
+    unexpectedError: "Something went wrong while reading this capsule.",
+    completeSession: "Full conversation",
+    preview: "Preview",
+    messageOne: "{count} message",
+    messageOther: "{count} messages",
+    processStepOne: "{count} process step",
+    processStepOther: "{count} process steps",
+    imageOne: "{count} image",
+    imageOther: "{count} images",
+    omittedImageOne: "{count} image omitted",
+    omittedImageOther: "{count} images omitted",
+    noPreviewMessages: "This session has no messages available for public preview. The complete capsule can still be imported into Codex or Claude Code.",
+    uploadedImage: "Uploaded image",
+    uploadedImageDetail: "Uploaded image ({detail})",
+    omittedImageDetailOne: "1 image omitted. Import the capsule to view it.",
+    omittedImageDetailOther: "{count} images omitted. Import the capsule to view them.",
+    you: "You",
+    assistant: "Assistant",
+    message: "Message",
+    skill: "Skill",
+    processedDuration: "Processed {duration}",
+    processed: "Processed",
+    exploredFileOne: "Explored {count} file",
+    exploredFileOther: "Explored {count} files",
+    searchOne: "{count} search",
+    searchOther: "{count} searches",
+    ranCommandOne: "Ran {count} command",
+    ranCommandOther: "Ran {count} commands",
+    changeOne: "Made {count} change",
+    changeOther: "Made {count} changes",
+    webQueryOne: "Made {count} web query",
+    webQueryOther: "Made {count} web queries",
+    processedStepOne: "Processed {count} step",
+    processedStepOther: "Processed {count} steps",
+    ranCommand: "Ran {command}",
+    appliedPatch: "Applied a patch",
+    queriedWeb: "Queried the web",
+    searchedTools: "Searched tools",
+    calledTool: "Called {tool}",
+    tool: "tool",
+    toolOutput: "tool output",
+    shell: "Shell",
+    patch: "Patch",
+    process: "Process",
+    noInputOutput: "No input or output.",
+    recorded: "Recorded",
+    statusSuccess: "Success",
+    statusFailure: "Failed",
+    statusCancelled: "Cancelled",
+    statusCalled: "Called",
+    statusRecorded: "Recorded",
+    loading: "Loading",
+    downloadingDecrypting: "Downloading, verifying, and decrypting the complete capsule...",
+    fullTranscriptLoaded: "The complete visible conversation is loaded.",
+    fullBundle: "Complete bundle {bytes}",
+    unpackingTranscript: "Unpacking and reading the native conversation...",
+    nativeTranscriptLoaded: "The complete {source} native conversation is loaded.",
+    completeRenderedFiltered: "The complete visible conversation was decrypted and rendered in this browser. Internal context and invisible state remain filtered.",
+    loadFailed: "Could not load the complete conversation: {message}",
+    unsupportedCentralDirectory: "Unsupported ZIP central directory format.",
+    unsupportedLocalHeader: "Unsupported ZIP local header format.",
+    invalidCapsuleZip: "This is not a recognized capsule ZIP.",
+    unsupportedCompression: "Unsupported ZIP compression method: {method}",
+    unsupportedDeflate: "This browser cannot decompress ZIP deflate data. Import the capsule with an agent instead.",
+    noViewableTranscript: "The complete capsule has no conversation that this page can display. Import older capsules with an agent instead.",
+    linkUnavailable: "Link unavailable: {status}",
+    legacyLink: "Legacy link",
+    noLightweightPreview: "This link has no lightweight preview. If it includes #k, you can load the full conversation or import it with an agent.",
+    missingKey: "Missing key",
+    missingKeyStatus: "This link is missing the #k decryption key. Use the complete URL returned by capsule export.",
+    previewTruncated: "The preview was decrypted in this browser, but visible content is incomplete. You can load the full conversation.",
+    completeRendered: "The complete visible conversation was decrypted and rendered in this browser.",
+    previewUnavailable: "Preview unavailable"
+  },
+  "zh-CN": {
+    titleSuffix: "Agent Capsule 预览",
+    previewAria: "Capsule 预览",
+    previewKicker: "Capsule 预览",
+    previewSubtitle: "页面会先在本地解密轻量预览。内容不完整时，可以继续加载完整可见对话，或将胶囊导入本地 Agent 原生界面。",
+    waitingPreview: "正在等待预览",
+    encryptedLink: "加密链接",
+    readingPreview: "正在读取这个链接里的加密预览。",
+    previewDecryptFailed: "无法解密预览。请确认 URL 包含正确的 #k key。",
+    loadFullTranscript: "加载完整对话",
+    sessionPreviewAria: "会话预览",
+    agentsKicker: "给 AGENT",
+    restoreTitle: "恢复到本地",
+    restoreCopy: "选择 Codex 或 Claude Code，将完整会话导入为新的本地 thread 或 session。",
+    languageLabel: "语言",
+    englishLanguage: "English",
+    chineseLanguage: "简体中文",
+    importTargetLabel: "导入目标",
+    installLabel: "安装",
+    importLabel: "导入",
+    copyLabel: "复制",
+    copiedLabel: "已复制",
+    expiresAt: "过期时间 {date}",
+    webCryptoUnavailable: "当前浏览器不支持 WebCrypto。",
+    missingBundle: "这个链接不包含完整 bundle。",
+    bundleDownloadFailed: "完整 bundle 下载失败：{status}",
+    bundleSizeMismatch: "完整 bundle 字节数与 manifest 不一致。",
+    bundleHashMismatch: "完整 bundle 的 SHA-256 校验失败。",
+    bundleDecryptFailed: "无法使用这个链接的 key 解密完整 bundle。",
+    unexpectedError: "读取这个 capsule 时出现了问题。",
+    completeSession: "完整对话",
+    preview: "预览",
+    messageOne: "{count} 条消息",
+    messageOther: "{count} 条消息",
+    processStepOne: "{count} 个过程步骤",
+    processStepOther: "{count} 个过程步骤",
+    imageOne: "{count} 张图片",
+    imageOther: "{count} 张图片",
+    omittedImageOne: "省略 {count} 张图片",
+    omittedImageOther: "省略 {count} 张图片",
+    noPreviewMessages: "这个 session 没有可公开预览的消息，仍可将完整 Capsule 导入 Codex 或 Claude Code。",
+    uploadedImage: "上传的图片",
+    uploadedImageDetail: "上传的图片（{detail}）",
+    omittedImageDetailOne: "已省略 1 张图片，导入胶囊后可查看。",
+    omittedImageDetailOther: "已省略 {count} 张图片，导入胶囊后可查看。",
+    you: "你",
+    assistant: "助手",
+    message: "消息",
+    skill: "Skill",
+    processedDuration: "已处理 {duration}",
+    processed: "已处理",
+    exploredFileOne: "已探索 {count} 个文件",
+    exploredFileOther: "已探索 {count} 个文件",
+    searchOne: "{count} 次搜索",
+    searchOther: "{count} 次搜索",
+    ranCommandOne: "已运行 {count} 条命令",
+    ranCommandOther: "已运行 {count} 条命令",
+    changeOne: "已修改 {count} 次",
+    changeOther: "已修改 {count} 次",
+    webQueryOne: "已查询网络 {count} 次",
+    webQueryOther: "已查询网络 {count} 次",
+    processedStepOne: "已处理 {count} 个步骤",
+    processedStepOther: "已处理 {count} 个步骤",
+    ranCommand: "已运行 {command}",
+    appliedPatch: "已应用补丁",
+    queriedWeb: "已查询网络",
+    searchedTools: "已搜索工具",
+    calledTool: "已调用 {tool}",
+    tool: "工具",
+    toolOutput: "工具输出",
+    shell: "Shell",
+    patch: "补丁",
+    process: "过程",
+    noInputOutput: "没有输入或输出。",
+    recorded: "已记录",
+    statusSuccess: "成功",
+    statusFailure: "失败",
+    statusCancelled: "已取消",
+    statusCalled: "已调用",
+    statusRecorded: "已记录",
+    loading: "加载中",
+    downloadingDecrypting: "正在下载、校验并解密完整 capsule...",
+    fullTranscriptLoaded: "完整可见对话已加载。",
+    fullBundle: "完整包 {bytes}",
+    unpackingTranscript: "正在解包并读取原生对话内容...",
+    nativeTranscriptLoaded: "{source} 原生对话内容已完整加载。",
+    completeRenderedFiltered: "完整可见对话已在浏览器本地解密并渲染；内部上下文和不可见状态仍会被过滤。",
+    loadFailed: "完整对话加载失败：{message}",
+    unsupportedCentralDirectory: "不支持这种 ZIP central directory 格式。",
+    unsupportedLocalHeader: "不支持这种 ZIP local header 格式。",
+    invalidCapsuleZip: "这不是可识别的 capsule ZIP。",
+    unsupportedCompression: "不支持 ZIP 压缩方法：{method}",
+    unsupportedDeflate: "当前浏览器不支持 ZIP deflate 解压，请改用 Agent 导入。",
+    noViewableTranscript: "完整 capsule 里没有可在网页展示的对话内容；旧胶囊请改用 Agent 导入。",
+    linkUnavailable: "链接不可用：{status}",
+    legacyLink: "旧版链接",
+    noLightweightPreview: "这个链接没有轻量预览；如果带有 #k，可以加载完整对话，或交给 Agent 导入。",
+    missingKey: "缺少 key",
+    missingKeyStatus: "这个链接缺少 #k 解密 key。请使用 capsule export 返回的完整 URL。",
+    previewTruncated: "预览已在浏览器本地解密，但可见内容仍不完整。可以继续加载完整对话。",
+    completeRendered: "完整可见对话已在浏览器本地解密并渲染。",
+    previewUnavailable: "预览不可用"
+  }
+};
 
 export class BudgetGate {
   constructor(state, env) {
@@ -289,14 +498,21 @@ async function getBlob(env, id) {
 }
 
 async function sharePage(request, env, id) {
-  const result = await gateJSON(env, "/share", { id });
-  if (!result.ok) return html("Agent Capsule link unavailable", 404);
-  const manifest = manifestForResponse(result.share.manifest);
+  const locale = sharePageLocale(request);
   const decision = shareResponseDecision(request);
+  const result = await gateJSON(env, "/share", { id });
+  if (!result.ok) {
+    const response = htmlDocument(shareUnavailableHTML(locale, result.status || 404), result.status || 404);
+    response.headers.set("content-language", locale);
+    return withShareVary(response, decision.vary);
+  }
+  const manifest = manifestForResponse(result.share.manifest);
   if (decision.kind === "agent-json") return withShareVary(jsonContent(manifest, AGENT_MANIFEST_CONTENT_TYPE), decision.vary);
   if (decision.kind === "json") return withShareVary(json(manifest), decision.vary);
   if (decision.kind === "markdown") return withShareVary(markdown(agentHandoffMarkdown(request, manifest, id)), decision.vary);
-  return withShareVary(htmlDocument(sharePageHTML(request, manifest, id)), decision.vary);
+  const response = htmlDocument(sharePageHTML(request, manifest, id, locale));
+  response.headers.set("content-language", locale);
+  return withShareVary(response, decision.vary);
 }
 
 async function shareAgentResource(request, env, id, format) {
@@ -309,19 +525,71 @@ async function shareAgentResource(request, env, id, format) {
 
 function manifestForResponse(manifest) {
   const out = JSON.parse(JSON.stringify(manifest || {}));
-  out.import = importInfo();
+  const target = importTarget(out.import);
+  out.import = importInfo(target);
   return out;
 }
 
-function importInfo() {
+function importCommand(target) {
+  return `capsule import "<this-url>" --target ${normalizeImportTarget(target)} --target-cwd . --execute`;
+}
+
+function normalizeImportTarget(value) {
+  return String(value || "").toLowerCase() === "claude" ? "claude" : "codex";
+}
+
+function importTarget(value) {
+  const data = objectValue(value);
+  const explicit = String(data.default_target || "").toLowerCase();
+  if (explicit === "codex" || explicit === "claude") return explicit;
+  for (const key of ["execute_command", "command"]) {
+    const command = stringValue(data[key]);
+    const match = command.match(/^capsule\s+import\s+(?:"<this-url>"|<this-url>)\s+--target\s+(codex|claude)\s+--target-cwd\s+\.\s+--execute$/i);
+    if (match) return match[1].toLowerCase();
+  }
+  return DEFAULT_IMPORT_TARGET;
+}
+
+function importInfo(target = DEFAULT_IMPORT_TARGET) {
+  const defaultTarget = normalizeImportTarget(target);
+  const targetCommands = {
+    codex: quoteThisURL(importCommand("codex")),
+    claude: quoteThisURL(importCommand("claude"))
+  };
   return {
     tool: "capsule",
-    command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
+    default_target: defaultTarget,
+    target_commands: targetCommands,
+    command: targetCommands[defaultTarget],
     install_command: DEFAULT_INSTALL_COMMAND,
-    execute_command: quoteThisURL(DEFAULT_EXECUTE_COMMAND),
+    execute_command: targetCommands[defaultTarget],
     docs_url: DEFAULT_DOCS_URL,
     skill_url: DEFAULT_SKILL_URL
   };
+}
+
+function sharePageLocale(request) {
+  const value = new URL(request.url).searchParams.get("lang");
+  const normalized = String(value || "").toLowerCase();
+  return normalized === "zh" || normalized === "zh-cn" || normalized === "zh-hans" ? "zh-CN" : "en";
+}
+
+function shareUnavailableHTML(locale, status) {
+  const selected = SHARE_PAGE_COPY[locale] || SHARE_PAGE_COPY.en;
+  const message = String(selected.linkUnavailable || SHARE_PAGE_COPY.en.linkUnavailable)
+    .replace("{status}", String(status || 404));
+  const title = String(selected.previewUnavailable || SHARE_PAGE_COPY.en.previewUnavailable);
+  return `<!doctype html>
+<html lang="${escapeHTML(locale)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>${escapeHTML(title)} - Agent Capsule</title>
+  <style>body{margin:0;background:#f5f4ef;color:#25251f;font-family:ui-sans-serif,system-ui,sans-serif}main{max-width:640px;margin:15vh auto;padding:32px}h1{font-size:28px;margin:0 0 12px}p{color:#66665d;line-height:1.6}</style>
+</head>
+<body><main><h1>${escapeHTML(title)}</h1><p>${escapeHTML(message)}</p></main></body>
+</html>`;
 }
 
 function quoteThisURL(command) {
@@ -406,11 +674,14 @@ function agentHandoffMarkdown(request, manifest, id) {
   const thread = objectValue(manifest.thread);
   const cryptoInfo = objectValue(manifest.crypto);
   const bundle = objectValue(manifest.bundle);
-  const originalURL = "<original-url-with-#k>";
-  const executeCommand = DEFAULT_EXECUTE_COMMAND.replaceAll("<this-url>", originalURL);
+  const originalURL = "<canonical-share-url-with-validated-#k>";
+  const trustedImport = importInfo(importTarget(manifest.import));
+  const codexCommand = trustedImport.target_commands.codex.replaceAll("<this-url>", originalURL);
+  const claudeCommand = trustedImport.target_commands.claude.replaceAll("<this-url>", originalURL);
   const metadata = {
     title: thread.title || "Untitled session",
     source_thread: thread.id || "unknown",
+    default_import_target: trustedImport.default_target,
     share_url: shareURL,
     manifest_url: manifestURL,
     key_ref: cryptoInfo.key_ref || "url-fragment:k",
@@ -431,15 +702,21 @@ function agentHandoffMarkdown(request, manifest, id) {
   lines.push(
     "",
     "## Agent instructions",
-    "1. Use the original URL exactly as provided by the user, including the `#k=...` fragment. The server cannot see or return that fragment.",
+    "1. Read only the `k` value from the original URL fragment. Require a 43-character base64url key, then rebuild the canonical `share_url#k=<validated-key>` and discard every other fragment parameter. The server cannot see or return the key.",
     "2. Do not ask the user to paste the full transcript into chat.",
     "3. Install the importer if needed:",
     "",
     markdownFence("bash", DEFAULT_INSTALL_COMMAND),
     "",
-    "4. Import the complete capsule as a new native Codex thread:",
+    "4. Import the complete capsule into the local agent the user wants to continue with. The capsule default is `" + trustedImport.default_target + "`, but both targets are supported:",
     "",
-    markdownFence("bash", executeCommand),
+    "Codex:",
+    "",
+    markdownFence("bash", codexCommand),
+    "",
+    "Claude Code:",
+    "",
+    markdownFence("bash", claudeCommand),
     "",
     "5. After import, continue from the newly created local thread/session."
   );
@@ -456,12 +733,14 @@ function maxBacktickRun(value) {
   return Math.max(0, ...((String(value).match(/`+/g) || []).map((run) => run.length)));
 }
 
-function sharePageHTML(request, manifest, id) {
+function sharePageHTML(request, manifest, id, locale = "en") {
   const url = new URL(request.url);
+  const copy = SHARE_PAGE_COPY[locale] || SHARE_PAGE_COPY.en;
   const title = manifest.thread && manifest.thread.title ? manifest.thread.title : "Agent Capsule";
   const shareURL = url.origin + "/s/" + id;
   const manifestURL = url.origin + "/v1/shares/" + id;
   const agentManifestURL = shareURL + ".agent.json";
+  const defaultTarget = importTarget(manifest.import);
   const metadata = {
     schema: "agent-capsule.share-page.v1",
     share_url: shareURL,
@@ -469,56 +748,76 @@ function sharePageHTML(request, manifest, id) {
     key_ref: "url-fragment:k",
     import: manifest.import
   };
+  const i18n = { locale, copy };
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHTML(locale)}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHTML(title)} - Agent Capsule preview</title>
+  <link rel="icon" href="data:,">
+  <title>${escapeHTML(title)} - ${escapeHTML(copy.titleSuffix)}</title>
   <link rel="alternate" type="application/agent-capsule+json" href="${escapeHTML(agentManifestURL)}">
   <link rel="alternate" type="text/markdown" href="${escapeHTML(shareURL + ".agent.md")}">
   <style>${sharePageCSS()}</style>
 </head>
 <body>
   <script id="agent-capsule-metadata" type="application/agent-capsule+json">${scriptJSON(metadata)}</script>
+  <script id="agent-capsule-i18n" type="application/json">${scriptJSON(i18n)}</script>
   <main class="share-layout">
-    <section class="preview-column" aria-label="Capsule preview">
+    <section class="preview-column" aria-label="${escapeHTML(copy.previewAria)}">
       <header class="preview-header">
-        <p class="preview-kicker">Capsule preview</p>
+        <div class="preview-toolbar">
+          <p class="preview-kicker">${escapeHTML(copy.previewKicker)}</p>
+          <label class="select-control language-control" for="language-select">
+            <span>${escapeHTML(copy.languageLabel)}</span>
+            <select id="language-select">
+              <option value="en"${locale === "en" ? " selected" : ""}>${escapeHTML(copy.englishLanguage)}</option>
+              <option value="zh-CN"${locale === "zh-CN" ? " selected" : ""}>${escapeHTML(copy.chineseLanguage)}</option>
+            </select>
+          </label>
+        </div>
         <h1 id="page-title">${escapeHTML(title)}</h1>
-        <p class="preview-subtitle">这里会先解密轻量预览；只有预览被截断或旧链接没有预览时，才在本页提供完整可见对话内容加载入口。也可以交给 agent 导入到原生 UI 继续。</p>
+        <p class="preview-subtitle">${escapeHTML(copy.previewSubtitle)}</p>
         <p class="preview-meta" aria-live="polite">
-          <span id="counts">正在等待预览</span>
-          <span id="expires-at">加密链接</span>
+          <span id="counts">${escapeHTML(copy.waitingPreview)}</span>
+          <span id="expires-at">${escapeHTML(copy.encryptedLink)}</span>
         </p>
         <hr class="preview-rule">
-        <p id="status" class="status">正在读取这个链接里的加密预览。</p>
+        <p id="status" class="status">${escapeHTML(copy.readingPreview)}</p>
         <div id="full-transcript-actions" class="preview-actions" hidden>
-          <button id="load-full-transcript" class="secondary-action" type="button">加载完整对话内容</button>
+          <button id="load-full-transcript" class="secondary-action" type="button">${escapeHTML(copy.loadFullTranscript)}</button>
           <span id="full-transcript-status" class="preview-action-status" aria-live="polite"></span>
         </div>
       </header>
-      <section id="transcript" class="codex-thread" aria-label="Session preview" aria-live="polite"></section>
+      <section id="transcript" class="codex-thread" aria-label="${escapeHTML(copy.sessionPreviewAria)}" aria-live="polite"></section>
     </section>
 
     <aside class="agents-panel" aria-labelledby="agents-title">
       <section class="agents-card">
-        <p class="agents-kicker">FOR AGENTS</p>
-        <h2 id="agents-title">Restore in Codex</h2>
-        <p class="agents-copy">Give this URL to a coding agent. It can install the importer and import the complete session as a new Codex thread.</p>
+        <p class="agents-kicker">${escapeHTML(copy.agentsKicker)}</p>
+        <h2 id="agents-title">${escapeHTML(copy.restoreTitle)}</h2>
+        <p class="agents-copy">${escapeHTML(copy.restoreCopy)}</p>
+
+        <label class="select-control target-control" for="target-select">
+          <span>${escapeHTML(copy.importTargetLabel)}</span>
+          <select id="target-select">
+            <option value="codex"${defaultTarget === "codex" ? " selected" : ""}>Codex</option>
+            <option value="claude"${defaultTarget === "claude" ? " selected" : ""}>Claude Code</option>
+          </select>
+        </label>
 
         <div class="command-block">
           <div class="command-head">
-            <span>Install</span>
-            <button type="button" data-copy="install-command">Copy</button>
+            <span>${escapeHTML(copy.installLabel)}</span>
+            <button type="button" data-copy="install-command">${escapeHTML(copy.copyLabel)}</button>
           </div>
           <pre id="install-command"></pre>
         </div>
 
         <div class="command-block emphasized">
           <div class="command-head">
-            <span>Import</span>
-            <button type="button" data-copy="execute-command">Copy</button>
+            <span>${escapeHTML(copy.importLabel)}</span>
+            <button type="button" data-copy="execute-command">${escapeHTML(copy.copyLabel)}</button>
           </div>
           <pre id="execute-command"></pre>
         </div>
@@ -576,12 +875,46 @@ button, a { font: inherit; }
 .preview-header {
   padding: 0 44px 0 72px;
 }
+.preview-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 4px;
+}
 .preview-kicker {
-  margin: 0 0 4px;
+  margin: 0;
   color: #969da8;
   font-size: 15px;
   font-weight: 700;
   letter-spacing: .01em;
+}
+.select-control {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+.select-control select {
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 6px 34px 6px 11px;
+  cursor: pointer;
+  font: inherit;
+}
+.select-control select:focus-visible {
+  outline: 2px solid rgba(47, 111, 102, .32);
+  outline-offset: 2px;
+}
+.language-control {
+  min-width: 176px;
+}
+.target-control {
+  margin: 0 0 24px;
 }
 #page-title {
   margin: 0 0 12px;
@@ -1087,6 +1420,12 @@ button, a { font: inherit; }
     margin-top: 24px;
   }
   #page-title { font-size: 28px; }
+  .preview-toolbar {
+    align-items: start;
+    flex-direction: column;
+    margin-bottom: 14px;
+  }
+  .language-control { min-width: min(100%, 220px); }
   .preview-subtitle,
   .status,
   .agents-copy { font-size: 16px; }
@@ -1159,6 +1498,9 @@ button, a { font: inherit; }
 function sharePageJS() {
   return `
 const metadata = JSON.parse(document.getElementById("agent-capsule-metadata").textContent);
+const pageI18n = JSON.parse(document.getElementById("agent-capsule-i18n").textContent);
+const pageLocale = pageI18n.locale || "en";
+const copy = pageI18n.copy || {};
 const $ = (id) => document.getElementById(id);
 const fenceMarker = String.fromCharCode(96, 96, 96);
 let activeManifest = null;
@@ -1166,13 +1508,44 @@ let activeKey = "";
 let activeTranscriptSource = "";
 let activeFullTranscriptLoaded = false;
 
-function fullShareURL() {
-  return location.origin + location.pathname + location.search + location.hash;
+function t(key, values = {}) {
+  const template = String(copy[key] || key);
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (_match, name) => {
+    return Object.hasOwn(values, name) ? String(values[name]) : "";
+  });
+}
+
+function tp(key, count, values = {}) {
+  return t(key + (Number(count) === 1 ? "One" : "Other"), { ...values, count });
+}
+
+function localizedError(key, values = {}) {
+  const error = new Error(t(key, values));
+  error.localized = true;
+  return error;
+}
+
+function localizedErrorMessage(error) {
+  if (error && error.localized && error.message) return error.message;
+  console.error(error);
+  return t("unexpectedError");
+}
+
+function shareURLWithKey() {
+  const key = fragmentKey();
+  return metadata.share_url + (key ? "#k=" + key : "#k=...");
+}
+
+function languageURL(locale) {
+  const next = new URL(location.href);
+  next.searchParams.set("lang", locale === "zh-CN" ? "zh-CN" : "en");
+  const key = fragmentKey();
+  next.hash = key ? "#k=" + key : "";
+  return next.toString();
 }
 
 function commandText(template) {
-  const url = location.hash ? fullShareURL() : metadata.share_url + "#k=...";
-  return String(template || "").replaceAll("<this-url>", url);
+  return String(template || "").replaceAll("<this-url>", shareURLWithKey());
 }
 
 function setStatus(text, kind = "info") {
@@ -1183,21 +1556,26 @@ function setStatus(text, kind = "info") {
 }
 
 function renderCommands(importInfo) {
-  $("install-command").textContent = importInfo.install_command || metadata.import.install_command;
-  $("execute-command").textContent = commandText(importInfo.execute_command || importInfo.command || metadata.import.execute_command);
+  const info = importInfo || metadata.import || {};
+  const target = $("target-select") && $("target-select").value === "claude" ? "claude" : "codex";
+  const targetCommands = info.target_commands || metadata.import.target_commands || {};
+  const command = targetCommands[target] || info.execute_command || info.command || metadata.import.execute_command;
+  $("install-command").textContent = info.install_command || metadata.import.install_command;
+  $("execute-command").textContent = commandText(command);
 }
 
 function renderManifestInfo(manifest) {
   if (manifest.thread && manifest.thread.title) {
     $("page-title").textContent = manifest.thread.title;
-    document.title = manifest.thread.title + " - Agent Capsule preview";
+    document.title = manifest.thread.title + " - " + t("titleSuffix");
   }
-  $("expires-at").textContent = manifest.expires_at ? "过期时间 " + new Date(manifest.expires_at).toLocaleString() : "加密链接";
+  const date = manifest.expires_at ? new Date(manifest.expires_at).toLocaleString(pageLocale) : "";
+  $("expires-at").textContent = date ? t("expiresAt", { date }) : t("encryptedLink");
 }
 
 function fragmentKey() {
   const value = new URLSearchParams(location.hash.slice(1)).get("k");
-  return value || "";
+  return /^[A-Za-z0-9_-]{43}$/.test(value || "") ? value : "";
 }
 
 function base64urlToBytes(value) {
@@ -1210,34 +1588,45 @@ function base64urlToBytes(value) {
 }
 
 async function decryptPreview(preview, keyText) {
-  if (!crypto.subtle) throw new Error("WebCrypto is unavailable in this browser");
-  const keyBytes = base64urlToBytes(keyText);
-  const nonce = base64urlToBytes(preview.crypto.nonce);
-  const ciphertext = base64urlToBytes(preview.payload);
-  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext);
-  return JSON.parse(new TextDecoder().decode(plain));
+  if (!crypto.subtle) throw localizedError("webCryptoUnavailable");
+  try {
+    const keyBytes = base64urlToBytes(keyText);
+    const nonce = base64urlToBytes(preview.crypto.nonce);
+    const ciphertext = base64urlToBytes(preview.payload);
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext);
+    return JSON.parse(new TextDecoder().decode(plain));
+  } catch (error) {
+    if (error && error.localized) throw error;
+    console.error(error);
+    throw localizedError("previewDecryptFailed");
+  }
 }
 
 async function decryptBundle(manifest, keyText) {
-  if (!crypto.subtle) throw new Error("WebCrypto is unavailable in this browser");
-  if (!manifest || !manifest.bundle || !manifest.bundle.url) throw new Error("这个链接缺少完整 bundle。");
+  if (!crypto.subtle) throw localizedError("webCryptoUnavailable");
+  if (!manifest || !manifest.bundle || !manifest.bundle.url) throw localizedError("missingBundle");
   const response = await fetch(manifest.bundle.url);
-  if (!response.ok) throw new Error("完整 bundle 下载失败: " + response.status);
+  if (!response.ok) throw localizedError("bundleDownloadFailed", { status: response.status });
   const ciphertext = new Uint8Array(await response.arrayBuffer());
   if (manifest.bundle.bytes && ciphertext.byteLength !== manifest.bundle.bytes) {
-    throw new Error("完整 bundle 字节数不匹配。");
+    throw localizedError("bundleSizeMismatch");
   }
   const digest = await crypto.subtle.digest("SHA-256", ciphertext);
   const actualSHA256 = hexFromBytes(new Uint8Array(digest));
   const expectedSHA256 = String(manifest.bundle.sha256 || "").toLowerCase();
   if (expectedSHA256 && actualSHA256 !== expectedSHA256) {
-    throw new Error("完整 bundle sha256 校验失败。");
+    throw localizedError("bundleHashMismatch");
   }
-  const keyBytes = base64urlToBytes(keyText);
-  const nonce = base64urlToBytes(manifest.crypto && manifest.crypto.nonce || "");
-  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
-  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext));
+  try {
+    const keyBytes = base64urlToBytes(keyText);
+    const nonce = base64urlToBytes(manifest.crypto && manifest.crypto.nonce || "");
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, ciphertext));
+  } catch (error) {
+    console.error(error);
+    throw localizedError("bundleDecryptFailed");
+  }
 }
 
 function hexFromBytes(bytes) {
@@ -1253,14 +1642,20 @@ function renderTranscript(transcript, options = {}) {
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   const imageCount = entries.reduce((count, entry) => count + (entry.images || []).filter((image) => !image.omitted).length, 0);
   const omittedImages = entries.reduce((count, entry) => count + Number(entry.omitted_images || 0), 0);
-  const scope = options.complete ? "完整会话" : "预览";
-  $("counts").textContent = [scope, messageCount + " 条消息", toolCount + " 个过程步骤", imageCount ? imageCount + " 张图片" : "", omittedImages ? "省略 " + omittedImages + " 张图片" : ""].filter(Boolean).join(" - ");
+  const scope = options.complete ? t("completeSession") : t("preview");
+  $("counts").textContent = [
+    scope,
+    tp("message", messageCount),
+    tp("processStep", toolCount),
+    imageCount ? tp("image", imageCount) : "",
+    omittedImages ? tp("omittedImage", omittedImages) : ""
+  ].filter(Boolean).join(" - ");
   const root = $("transcript");
   root.replaceChildren();
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "status";
-    empty.textContent = "这个 session 没有可公开预览的消息。agent 仍然可以把完整 Capsule 导入到 Codex。";
+    empty.textContent = t("noPreviewMessages");
     root.appendChild(empty);
     return;
   }
@@ -1369,7 +1764,7 @@ function skillIconNode() {
 
 function formatSkillName(name) {
   const text = String(name || "skill").trim().replace(/^[$@]/, "");
-  return text.split(/[-_\\s]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") || "Skill";
+  return text.split(/[-_\\s]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") || t("skill");
 }
 
 function stripSkillInvocation(text, skills) {
@@ -1395,7 +1790,7 @@ function imageGallery(entry) {
     img.className = "preview-image";
     img.loading = "lazy";
     img.decoding = "async";
-    img.alt = image.alt || "Uploaded image";
+    img.alt = image.alt || t("uploadedImage");
     img.src = image.src;
     grid.appendChild(img);
   }
@@ -1406,14 +1801,14 @@ function imageGallery(entry) {
 function omittedImageNode(count) {
   const node = document.createElement("div");
   node.className = "image-omitted";
-  node.textContent = count > 1 ? "已省略 " + count + " 张图片，导入后可查看完整图片。" : "已省略 1 张图片，导入后可查看完整图片。";
+  node.textContent = tp("omittedImageDetail", count);
   return node;
 }
 
 function roleLabel(role) {
-  if (role === "user") return "You";
-  if (role === "assistant") return activeTranscriptSource === "claude" ? "Claude" : activeTranscriptSource === "codex" ? "Codex" : "Assistant";
-  return role || "Message";
+  if (role === "user") return t("you");
+  if (role === "assistant") return activeTranscriptSource === "claude" ? "Claude" : activeTranscriptSource === "codex" ? "Codex" : t("assistant");
+  return role || t("message");
 }
 
 function turnProcessNode(entries) {
@@ -1506,7 +1901,7 @@ function toolPanelNode(entry) {
 
 function processedLabel(entries) {
   const duration = durationFromEntries(entries);
-  return duration ? "已处理 " + duration : "已处理";
+  return duration ? t("processedDuration", { duration }) : t("processed");
 }
 
 function durationFromEntries(entries) {
@@ -1545,22 +1940,22 @@ function toolGroupSummary(entries) {
   const patches = entries.filter((entry) => String(entry.tool || "").includes("apply_patch")).length;
   const web = entries.filter((entry) => /web|browser/.test(String(entry.tool || ""))).length;
   const parts = [];
-  if (files) parts.push("已探索 " + files + " 个文件");
-  if (searched) parts.push(searched + " 次搜索");
-  if (commands) parts.push("已运行 " + commands + " 条命令");
-  if (patches) parts.push("已修改 " + patches + " 次");
-  if (web) parts.push("已查询 " + web + " 次");
-  return parts.length ? parts.join("") : "已处理 " + entries.length + " 个步骤";
+  if (files) parts.push(tp("exploredFile", files));
+  if (searched) parts.push(tp("search", searched));
+  if (commands) parts.push(tp("ranCommand", commands));
+  if (patches) parts.push(tp("change", patches));
+  if (web) parts.push(tp("webQuery", web));
+  return parts.length ? parts.join(" · ") : tp("processedStep", entries.length);
 }
 
 function toolActionSummary(entry) {
   const command = extractCommand(entry.input_preview || "");
   const tool = String(entry.tool || "");
-  if (command) return "已运行 " + command;
-  if (tool.includes("apply_patch")) return "已应用补丁";
-  if (tool.includes("web") || tool.includes("browser")) return "已查询网络";
-  if (tool.includes("tool_search")) return "已搜索工具";
-  return "已调用 " + (entry.tool || "工具");
+  if (command) return t("ranCommand", { command });
+  if (tool.includes("apply_patch")) return t("appliedPatch");
+  if (tool.includes("web") || tool.includes("browser")) return t("queriedWeb");
+  if (tool.includes("tool_search")) return t("searchedTools");
+  return t("calledTool", { tool: entry.tool || t("tool") });
 }
 
 function isShellCommand(entry) {
@@ -1587,9 +1982,9 @@ function exploredFileCount(entry) {
 
 function processPanelTitle(entry) {
   const tool = String(entry.tool || "");
-  if (tool.includes("exec") || extractCommand(entry.input_preview || "")) return "Shell";
-  if (tool.includes("apply_patch")) return "Patch";
-  return entry.tool || "Process";
+  if (tool.includes("exec") || extractCommand(entry.input_preview || "")) return t("shell");
+  if (tool.includes("apply_patch")) return t("patch");
+  return entry.tool || t("process");
 }
 
 function processBody(entry) {
@@ -1598,12 +1993,12 @@ function processBody(entry) {
   const output = String(entry.output || "");
   if (command) return "$ " + command + (output ? "\\n\\n" + output : "");
   if (output) return (input ? input + "\\n\\n" : "") + output;
-  return input || "没有输入或输出。";
+  return input || t("noInputOutput");
 }
 
 function processResult(entry) {
   const status = statusLabel(entry.status);
-  return status ? "✓ " + status : "✓ 已记录";
+  return status ? "✓ " + status : "✓ " + t("recorded");
 }
 
 function processIconNode() {
@@ -1622,9 +2017,11 @@ function chevronNode() {
 function statusLabel(status) {
   const value = String(status || "").toLowerCase();
   if (!value) return "";
-  if (["ok", "success", "succeeded", "completed", "complete", "done"].includes(value)) return "成功";
-  if (["error", "failed", "failure"].includes(value)) return "失败";
-  if (value === "cancelled" || value === "canceled") return "已取消";
+  if (["ok", "success", "succeeded", "completed", "complete", "done"].includes(value)) return t("statusSuccess");
+  if (["error", "failed", "failure"].includes(value)) return t("statusFailure");
+  if (value === "cancelled" || value === "canceled") return t("statusCancelled");
+  if (value === "called") return t("statusCalled");
+  if (value === "recorded") return t("statusRecorded");
   return status;
 }
 
@@ -1828,7 +2225,7 @@ function setFullTranscriptAction(state, detail = {}) {
     button.hidden = false;
     button.disabled = false;
     button.removeAttribute("aria-busy");
-    button.textContent = "加载完整对话内容";
+    button.textContent = t("loadFullTranscript");
     status.textContent = "";
     return;
   }
@@ -1837,41 +2234,41 @@ function setFullTranscriptAction(state, detail = {}) {
     button.hidden = false;
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    button.textContent = "加载中";
-    status.textContent = detail.status || "正在下载、校验并解密完整 capsule...";
+    button.textContent = t("loading");
+    status.textContent = detail.status || t("downloadingDecrypting");
     return;
   }
   if (state === "loaded") {
     button.hidden = true;
     button.disabled = true;
     button.removeAttribute("aria-busy");
-    button.textContent = "加载完整对话内容";
-    status.textContent = detail.status || "完整可见对话内容已加载。";
+    button.textContent = t("loadFullTranscript");
+    status.textContent = detail.status || t("fullTranscriptLoaded");
     return;
   }
   button.hidden = false;
   button.disabled = false;
   button.removeAttribute("aria-busy");
-  button.textContent = "加载完整对话内容";
-  status.textContent = detail.status || (activeManifest.bundle.bytes ? "完整包 " + formatBytes(activeManifest.bundle.bytes) : "");
+  button.textContent = t("loadFullTranscript");
+  status.textContent = detail.status || (activeManifest.bundle.bytes ? t("fullBundle", { bytes: formatBytes(activeManifest.bundle.bytes) }) : "");
 }
 
 async function loadFullTranscript() {
   if (!activeManifest || !activeKey || activeFullTranscriptLoaded) return;
   try {
-    setFullTranscriptAction("loading", { status: "正在下载、校验并解密完整 capsule..." });
+    setFullTranscriptAction("loading", { status: t("downloadingDecrypting") });
     const plainZip = await decryptBundle(activeManifest, activeKey);
-    setFullTranscriptAction("loading", { status: "正在解包并读取原生对话内容..." });
+    setFullTranscriptAction("loading", { status: t("unpackingTranscript") });
     const files = await unzipFiles(plainZip);
     const transcript = await transcriptFromCapsuleFiles(files);
     renderTranscript(transcript, { complete: true });
     activeFullTranscriptLoaded = true;
-    setFullTranscriptAction("loaded", { status: sourceLabel(transcript.source) + " 原生对话内容已完整加载。" });
-    setStatus("完整可见对话内容已在浏览器本地解密并渲染；内部上下文和不可见状态仍会被过滤。", "success");
+    setFullTranscriptAction("loaded", { status: t("nativeTranscriptLoaded", { source: sourceLabel(transcript.source) }) });
+    setStatus(t("completeRenderedFiltered"), "success");
   } catch (error) {
-    const message = error && error.message ? error.message : String(error);
+    const message = localizedErrorMessage(error);
     setFullTranscriptAction("available", { status: message });
-    setStatus("完整会话加载失败：" + message, "error");
+    setStatus(t("loadFailed", { message }), "error");
   }
 }
 
@@ -1884,7 +2281,7 @@ function previewNeedsFullTranscript(transcript) {
 
 function sourceLabel(source) {
   if (source === "codex") return "Codex";
-  if (source === "claude") return "Claude";
+  if (source === "claude") return "Claude Code";
   if (source === "neutral") return "Neutral";
   return "Capsule";
 }
@@ -1897,7 +2294,7 @@ async function unzipFiles(zipBytes) {
   const files = new Map();
   let offset = centralDirOffset;
   for (let i = 0; i < entryCount; i += 1) {
-    if (u32(bytes, offset) !== 0x02014b50) throw new Error("zip central directory 格式不支持。");
+    if (u32(bytes, offset) !== 0x02014b50) throw localizedError("unsupportedCentralDirectory");
     const method = u16(bytes, offset + 10);
     const compressedSize = u32(bytes, offset + 20);
     const nameLen = u16(bytes, offset + 28);
@@ -1907,7 +2304,7 @@ async function unzipFiles(zipBytes) {
     const name = new TextDecoder().decode(bytes.slice(offset + 46, offset + 46 + nameLen));
     offset += 46 + nameLen + extraLen + commentLen;
     if (!name || name.endsWith("/")) continue;
-    if (u32(bytes, localOffset) !== 0x04034b50) throw new Error("zip local header 格式不支持。");
+    if (u32(bytes, localOffset) !== 0x04034b50) throw localizedError("unsupportedLocalHeader");
     const localNameLen = u16(bytes, localOffset + 26);
     const localExtraLen = u16(bytes, localOffset + 28);
     const dataStart = localOffset + 30 + localNameLen + localExtraLen;
@@ -1922,18 +2319,18 @@ function findEndOfCentralDirectory(bytes) {
   for (let i = bytes.length - 22; i >= min; i -= 1) {
     if (u32(bytes, i) === 0x06054b50) return i;
   }
-  throw new Error("不是可识别的 capsule zip。");
+  throw localizedError("invalidCapsuleZip");
 }
 
 async function unzipEntryData(method, compressed) {
   if (method === 0) return compressed;
   if (method === 8) return await inflateRaw(compressed);
-  throw new Error("zip 压缩方法不支持: " + method);
+  throw localizedError("unsupportedCompression", { method });
 }
 
 async function inflateRaw(bytes) {
   if (typeof DecompressionStream !== "function") {
-    throw new Error("当前浏览器不支持 zip deflate 解压，请用 agent import。");
+    throw localizedError("unsupportedDeflate");
   }
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
@@ -1960,7 +2357,7 @@ async function transcriptFromCapsuleFiles(files) {
   if (files.has("agent/neutral.json")) return neutralTranscriptFromFile(files.get("agent/neutral.json"));
   if (files.has("codex/session.jsonl")) return codexTranscriptFromSession(files.get("codex/session.jsonl"), manifest, imageAssets);
   if (files.has("claude/session.jsonl")) return claudeTranscriptFromSession(files.get("claude/session.jsonl"), manifest);
-  throw new Error("完整 capsule 里没有可网页展示的对话内容；旧 capsule 请用 agent import。");
+  throw localizedError("noViewableTranscript");
 }
 
 function codexTranscriptFromSession(bytes, manifest, imageAssets) {
@@ -2019,7 +2416,7 @@ function codexTranscriptFromSession(bytes, manifest, imageAssets) {
         pending.output_bytes = byteLengthInBrowser(output);
         if (!pending.status || pending.status === "called") pending.status = status;
       } else {
-        transcript.entries.push({ kind: "tool", timestamp, tool: "tool output", status, output, output_bytes: byteLengthInBrowser(output) });
+        transcript.entries.push({ kind: "tool", timestamp, tool: t("toolOutput"), status, output, output_bytes: byteLengthInBrowser(output) });
       }
       break;
     }
@@ -2296,7 +2693,7 @@ function dataImage(src, detail) {
     src,
     mime,
     bytes: dataURLDecodedBytes(src),
-    alt: detail ? "uploaded image (" + detail + ")" : "uploaded image"
+    alt: detail ? t("uploadedImageDetail", { detail }) : t("uploadedImage")
   };
 }
 
@@ -2383,28 +2780,38 @@ document.addEventListener("click", async (event) => {
   if (!node) return;
   await navigator.clipboard.writeText(node.textContent);
   const old = button.textContent;
-  button.textContent = "Copied";
+  button.textContent = t("copiedLabel");
   setTimeout(() => { button.textContent = old; }, 1200);
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target && event.target.id === "language-select") {
+    location.assign(languageURL(event.target.value));
+    return;
+  }
+  if (event.target && event.target.id === "target-select") {
+    renderCommands(activeManifest && activeManifest.import || metadata.import);
+  }
 });
 
 async function boot() {
   try {
-    const response = await fetch(location.pathname, { headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error("Link unavailable: " + response.status);
+    const response = await fetch(metadata.manifest_url, { headers: { accept: "application/json" } });
+    if (!response.ok) throw localizedError("linkUnavailable", { status: response.status });
     const manifest = await response.json();
     renderManifestInfo(manifest);
     renderCommands(manifest.import || metadata.import);
     const key = fragmentKey();
     configureFullTranscriptAction(manifest, key);
     if (!manifest.preview) {
-      $("counts").textContent = "旧版链接";
+      $("counts").textContent = t("legacyLink");
       if (key) setFullTranscriptAction("available");
-      setStatus("这个链接没有轻量预览；如果带有 #k，可以点击加载完整对话内容，或用 agent import。", "warn");
+      setStatus(t("noLightweightPreview"), "warn");
       return;
     }
     if (!key) {
-      $("counts").textContent = "缺少 key";
-      setStatus("这个链接缺少 #k 解密 key。请使用 capsule export 生成的完整 URL。", "warn");
+      $("counts").textContent = t("missingKey");
+      setStatus(t("missingKeyStatus"), "warn");
       return;
     }
     const transcript = await decryptPreview(manifest.preview, key);
@@ -2412,14 +2819,14 @@ async function boot() {
     renderTranscript(transcript, { complete: !needsFullTranscript });
     if (needsFullTranscript) {
       setFullTranscriptAction("available");
-      setStatus("预览已在浏览器本地解密，但可见内容仍有截断。可以加载完整可见对话内容。", "warn");
+      setStatus(t("previewTruncated"), "warn");
     } else {
       setFullTranscriptAction("hidden");
-      setStatus("完整可见对话内容已在浏览器本地解密并渲染。", "success");
+      setStatus(t("completeRendered"), "success");
     }
   } catch (error) {
-    $("counts").textContent = "预览不可用";
-    setStatus(error && error.message ? error.message : String(error), "error");
+    $("counts").textContent = t("previewUnavailable");
+    setStatus(localizedErrorMessage(error), "error");
   }
 }
 
@@ -2448,6 +2855,7 @@ function normalizeManifest(input, limits) {
   const bundle = objectValue(input.bundle);
   const cryptoInfo = objectValue(input.crypto);
   const thread = objectValue(input.thread);
+  const target = importTarget(input.import);
   const sha256 = stringValue(bundle.sha256).toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error("bad_bundle_sha256");
   if (cryptoInfo.alg !== "AES-256-GCM") throw new Error("unsupported manifest crypto");
@@ -2472,7 +2880,7 @@ function normalizeManifest(input, limits) {
       nonce,
       key_ref: "url-fragment:k"
     },
-    import: importInfo()
+    import: importInfo(target)
   };
   const preview = normalizePreview(input.preview, limits);
   if (preview) out.preview = preview;
