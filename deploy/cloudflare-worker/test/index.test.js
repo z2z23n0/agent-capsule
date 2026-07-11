@@ -452,6 +452,69 @@ test("share page prefers preview turn duration metadata", async () => {
   });
 });
 
+test("share page renders orchestrated web runs as web activity", async () => {
+  const env = fakeEnv();
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  const created = await upload.json();
+  const html = await (await worker.fetch(new Request(created.share_url), env)).text();
+  const entries = Array.from({ length: 7 }, (_, index) => ({
+    kind: "tool",
+    tool: "exec",
+    input_preview: `const r = await tools.web__run({search_query:[{q:"query ${index}"}]}); text(r)`
+  }));
+  const unknown = {
+    kind: "tool",
+    tool: "exec",
+    input_preview: "const result = await tools.some_future_tool({}); text(result)"
+  };
+  const rendered = runSharePageFunction(
+    html,
+    [
+      "toolGroupSummary",
+      "toolActionSummary",
+      "processPanelTitle",
+      "isShellCommand",
+      "isWebTool",
+      "isSearchCommand",
+      "isExploreCommand",
+      "exploredFileCount",
+      "extractCommand"
+    ],
+    `({
+      group: toolGroupSummary(entries),
+      action: toolActionSummary(entries[0]),
+      panel: processPanelTitle(entries[0]),
+      commands: entries.filter(isShellCommand).length,
+      unknownGroup: toolGroupSummary([unknown]),
+      unknownAction: toolActionSummary(unknown),
+      unknownPanel: processPanelTitle(unknown)
+    })`,
+    { entries, unknown }
+  );
+
+  assert.deepEqual(rendered, {
+    group: "Made 7 web queries",
+    action: "Queried the web",
+    panel: "Queried the web",
+    commands: 0,
+    unknownGroup: "Ran 1 command",
+    unknownAction: "Called exec",
+    unknownPanel: "Shell"
+  });
+
+  const chineseHTML = await (await worker.fetch(new Request(created.share_url + "?lang=zh-CN"), env)).text();
+  const chinese = runSharePageFunction(
+    chineseHTML,
+    ["toolGroupSummary", "isShellCommand", "isWebTool", "isSearchCommand", "isExploreCommand", "exploredFileCount", "extractCommand"],
+    "toolGroupSummary(entries)",
+    { entries }
+  );
+  assert.equal(chinese, "已查询网络 7 次");
+});
+
 test("share page only offers full transcript when preview is incomplete", async () => {
   const env = fakeEnv();
   const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
