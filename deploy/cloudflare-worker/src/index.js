@@ -1938,7 +1938,7 @@ function toolGroupSummary(entries) {
   const commands = entries.filter((entry) => isShellCommand(entry)).length;
   const files = entries.reduce((count, entry) => count + exploredFileCount(entry), 0);
   const patches = entries.filter((entry) => String(entry.tool || "").includes("apply_patch")).length;
-  const web = entries.filter((entry) => /web|browser/.test(String(entry.tool || ""))).length;
+  const web = entries.filter((entry) => isWebTool(entry)).length;
   const parts = [];
   if (files) parts.push(tp("exploredFile", files));
   if (searched) parts.push(tp("search", searched));
@@ -1951,15 +1951,22 @@ function toolGroupSummary(entries) {
 function toolActionSummary(entry) {
   const command = extractCommand(entry.input_preview || "");
   const tool = String(entry.tool || "");
+  if (isWebTool(entry)) return t("queriedWeb");
   if (command) return t("ranCommand", { command });
   if (tool.includes("apply_patch")) return t("appliedPatch");
-  if (tool.includes("web") || tool.includes("browser")) return t("queriedWeb");
   if (tool.includes("tool_search")) return t("searchedTools");
   return t("calledTool", { tool: entry.tool || t("tool") });
 }
 
 function isShellCommand(entry) {
-  return Boolean(extractCommand(entry.input_preview || "")) || String(entry.tool || "").includes("exec");
+  return !isWebTool(entry) && (Boolean(extractCommand(entry.input_preview || "")) || String(entry.tool || "").includes("exec"));
+}
+
+function isWebTool(entry) {
+  const tool = String(entry.tool || "");
+  if (tool.includes("web") || tool.includes("browser")) return true;
+  if (!/(^|\\.)exec$/.test(tool)) return false;
+  return /\\btools\\.web__run\\s*\\(/.test(String(entry.input_preview || ""));
 }
 
 function isSearchCommand(entry) {
@@ -1982,6 +1989,7 @@ function exploredFileCount(entry) {
 
 function processPanelTitle(entry) {
   const tool = String(entry.tool || "");
+  if (isWebTool(entry)) return t("queriedWeb");
   if (tool.includes("exec") || extractCommand(entry.input_preview || "")) return t("shell");
   if (tool.includes("apply_patch")) return t("patch");
   return entry.tool || t("process");
