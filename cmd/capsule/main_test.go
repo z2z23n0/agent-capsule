@@ -24,6 +24,12 @@ func TestHandoffCommandRemoved(t *testing.T) {
 	}
 }
 
+func TestProfileHelpCommand(t *testing.T) {
+	if err := run([]string{"profile", "help"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestImportCommandOpensRestoredCodexThread(t *testing.T) {
 	sourceHome, threadID := createFakeCodexHome(t)
 	out := filepath.Join(t.TempDir(), "session.capsule.zip")

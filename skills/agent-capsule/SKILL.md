@@ -1,6 +1,6 @@
 ---
 name: agent-capsule
-description: Use when an agent needs to install or use Agent Capsule to export, share, inspect, import, restore, or verify Codex and Claude Code session capsules, `.capsule.zip` files, or encrypted Agent Capsule links. Covers CLI setup, sender workflows, receiver bootstrap, approved import into local agent history, import-as-new semantics, secret-scan handling, and verification.
+description: Use when an agent needs to install or use Agent Capsule to export, share, inspect, import, restore, or verify Codex and Claude Code sessions, or to migrate a Codex profile between Macs. Covers session capsules, encrypted links, target-device orchestration, project selection and cloning, controlled profile overwrite, one-shot offline import, and verification.
 ---
 
 # Agent Capsule
@@ -14,6 +14,13 @@ prompt.
 
 The CLI is the source of truth. A `.capsule.zip` or share link must remain self-bootstrapping for agents that do not have this skill installed.
 
+There are two separate workflows:
+
+- Session handoff imports one conversation as a new thread/session.
+- Codex profile migration preserves selected native thread ids and overwrites a controlled profile allowlist on a disposable target installation.
+
+Never use session import semantics to approximate a profile migration.
+
 ## CLI Setup
 
 Check whether the CLI is available:
@@ -22,6 +29,9 @@ Check whether the CLI is available:
 command -v capsule
 capsule help
 ```
+
+For a profile migration, also require `capsule profile help` to succeed. If the
+installed binary predates the profile command group, update it before starting.
 
 If the user asked to export, share, import, restore, inspect, or verify a capsule and the CLI is missing, install the latest released binary:
 
@@ -66,6 +76,127 @@ flags instead of uploading the raw session yourself.
 If artifact export fails with a secret-scan warning, stop and tell the user what was detected. Only rerun with `--unsafe-include-secrets` after explicit user approval. Secret scan covers session text, not OCR or image pixels, so remind the user to review screenshots and uploaded images when relevant.
 
 Treat a full share URL containing `#k=...` as sensitive. The URL fragment is the decryption key.
+
+## Codex Mac-to-Mac Profile Migration
+
+Trigger this workflow when the user asks to migrate, move, or copy their Codex
+setup from this Mac to another Mac. If the user says to use Agent Capsule and
+names a connected target device, treat that as approval to orchestrate the
+source and receiver steps end to end. Use Codex Remote Connections and a
+target-owned Codex task when available; this is task coordination, not remote
+GUI control.
+
+### Confirm The Boundary
+
+Before writing anything, establish:
+
+- the target Mac/host and target username;
+- target `~/.codex` and project workspace paths;
+- that controlled overwrite is acceptable;
+- included or excluded project names.
+
+List candidate project names when the project boundary is not already explicit.
+Use `capsule profile discover --home "${CODEX_HOME:-$HOME/.codex}"` as the
+source of truth for project roots and selected-thread counts.
+Project migration includes committed Git state only. Uncommitted and untracked
+files are excluded unless the user separately asks for them. Never include a
+generic documents directory such as `~/Documents/Codex` merely because tasks
+have used it as a cwd.
+
+The target must have opened Codex at least once, be signed in, and have no local
+data the user wants to keep. Do not migrate authentication, provider tokens,
+Keychain data, installation ids, device enrollment, cookies, browser state,
+managed plugins, caches, logs, worktrees, or `skills/.system`.
+
+### Export On The Source Mac
+
+Pass every approved project root explicitly. Prepare committed Git bundles as a
+fallback for private remotes or local commits; they are not transferred unless
+needed.
+
+```bash
+capsule profile export \
+  --target-home /Users/<target-user>/.codex \
+  --target-workspace /Users/<target-user>/workspace \
+  --project /path/to/project-a \
+  --project /path/to/project-b \
+  --git-bundle-fallback \
+  --out ~/.codex/profile-migrations/<migration-id>
+```
+
+Review the JSON clone plan and counts before continuing. Then start the
+tokenized LAN server in a long-running terminal session:
+
+```bash
+capsule profile serve ~/.codex/profile-migrations/<migration-id> --listen :8765
+```
+
+The current hosted Worker/R2 link API is for individual session capsules, not
+multi-GiB profile directories. Use this LAN streaming path unless a future
+profile-specific multipart backend is explicitly available.
+
+### Receive Through The Target Codex Task
+
+Send the reachable tokenized URL to the target-owned Codex task and run:
+
+```bash
+capsule profile fetch <source-url> --out ~/.codex/profile-migrations/<migration-id>
+capsule profile clone ~/.codex/profile-migrations/<migration-id>
+capsule profile clone ~/.codex/profile-migrations/<migration-id> --execute
+```
+
+The first clone command is a dry run. If a remote clone fails because the target
+lacks access or the exported commit was not pushed, fetch only the Git fallback
+objects and retry:
+
+```bash
+capsule profile fetch <source-url> \
+  --out ~/.codex/profile-migrations/<migration-id> \
+  --include-git-bundles
+capsule profile clone ~/.codex/profile-migrations/<migration-id> --execute
+```
+
+Do not copy project working trees over HTTP. Install or configure Git on the
+target through its Codex task when needed.
+
+### Offline Import And Restart
+
+Run a dry import before scheduling the write:
+
+```bash
+capsule profile import ~/.codex/profile-migrations/<migration-id> --home ~/.codex
+capsule profile schedule-import ~/.codex/profile-migrations/<migration-id> \
+  --home ~/.codex --execute
+```
+
+The schedule command stages under `~/.codex`, creates a LaunchAgent with
+`RunAtLoad=true` and `KeepAlive=false`, waits briefly, quits Codex, checkpoints
+the target SQLite WAL, backs up the target state, imports, verifies, writes
+`import-status.json`, reopens Codex, and removes its plist. Never replace this
+with `launchctl submit`, a KeepAlive job, a Downloads-hosted script, or a child
+process tied to the running Codex process.
+
+The import preserves target authentication and remote-device identity. It
+overwrites only the exported config/skill/memory/automation allowlist, keeps
+`skills/.system`, rewrites source home/project paths, merges selected thread
+rows, and rebuilds project/sidebar assignments.
+
+### Verify And Clean Up
+
+After the target Codex reconnects, inspect the status and run verification from
+a target-owned task:
+
+```bash
+cat ~/.codex/profile-migrations/<migration-id>/import-status.json
+capsule profile verify ~/.codex/profile-migrations/<migration-id> --home ~/.codex
+capsule profile unschedule ~/.codex/profile-migrations/<migration-id> \
+  --home ~/.codex --execute
+```
+
+Confirm database integrity, all selected session files and rows, rewritten cwd
+and rollout paths, project Git roots, sidebar project assignments, user skills,
+and MCP configuration. Report any MCP or GitHub CLI login still required on the
+target. Stop the source `profile serve` process after verification.
 
 ## Artifact Import Or Restore
 
