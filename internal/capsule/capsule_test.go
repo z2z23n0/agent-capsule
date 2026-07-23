@@ -646,6 +646,33 @@ func TestPreviewTranscriptRedactsInternalContextAcrossMessageParts(t *testing.T)
 	}
 }
 
+func TestPreviewTranscriptRedactsMemoryCitationSuffix(t *testing.T) {
+	manifest := Manifest{
+		ThreadID:    testThreadID,
+		ThreadTitle: "Preview demo",
+		CreatedAt:   "2026-07-23T00:00:00Z",
+	}
+	session := strings.Join([]string{
+		`{"timestamp":"2026-07-23T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"visible final answer\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:10-12|note=[private provenance]\n</citation_entries>\n<rollout_ids>\n019f523a-60d4-70d2-893e-c93ac9f92f43\n</rollout_ids>\n</oai-mem-citation>"}]}}`,
+	}, "\n") + "\n"
+	transcript := buildPreviewTranscript(manifest, []byte(session))
+	if transcript.MessageCount != 1 {
+		t.Fatalf("message_count = %d", transcript.MessageCount)
+	}
+	if len(transcript.Entries) != 1 || transcript.Entries[0].Text != "visible final answer" {
+		t.Fatalf("visible answer = %#v", transcript.Entries)
+	}
+	preview := previewEntriesText(transcript)
+	if !strings.Contains(preview, "visible final answer") {
+		t.Fatalf("preview lost visible answer:\n%s", preview)
+	}
+	for _, leaked := range []string{"oai-mem-citation", "citation_entries", "MEMORY.md", "private provenance", "rollout_ids", "019f523a"} {
+		if strings.Contains(preview, leaked) {
+			t.Fatalf("memory citation leaked %q into preview:\n%s", leaked, preview)
+		}
+	}
+}
+
 func TestPreviewTranscriptAttachesSkillMessages(t *testing.T) {
 	manifest := Manifest{
 		ThreadID:    testThreadID,

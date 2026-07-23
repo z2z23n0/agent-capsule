@@ -470,27 +470,31 @@ func previewRedactHiddenContext(text string) string {
 	}
 	var b strings.Builder
 	inHiddenBlock := false
+	silentHiddenBlock := false
 	redactedPrevious := false
 	for _, part := range strings.SplitAfter(text, "\n") {
 		line := strings.TrimRight(part, "\r\n")
 		trimmed := strings.TrimSpace(line)
 		if inHiddenBlock {
-			if !redactedPrevious {
+			if !silentHiddenBlock && !redactedPrevious {
 				b.WriteString("[internal context omitted]\n")
 				redactedPrevious = true
 			}
 			if previewEndsHiddenContext(trimmed) {
 				inHiddenBlock = false
+				silentHiddenBlock = false
 			}
 			continue
 		}
 		if previewContainsHiddenContext(trimmed) {
-			if !redactedPrevious {
+			silent := previewSilentlyRedactsContext(trimmed)
+			if !silent && !redactedPrevious {
 				b.WriteString("[internal context omitted]\n")
 				redactedPrevious = true
 			}
 			if previewStartsHiddenContext(trimmed) && !previewEndsHiddenContext(trimmed) {
 				inHiddenBlock = true
+				silentHiddenBlock = silent
 			}
 			continue
 		}
@@ -498,6 +502,10 @@ func previewRedactHiddenContext(text string) string {
 		redactedPrevious = false
 	}
 	return b.String()
+}
+
+func previewSilentlyRedactsContext(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "<oai-mem-citation>")
 }
 
 func previewContainsHiddenContext(text string) bool {
@@ -511,6 +519,8 @@ func previewContainsHiddenContext(text string) bool {
 		"<environment_context>",
 		"<INSTRUCTIONS>",
 		"<skill>",
+		"<turn_aborted>",
+		"<oai-mem-citation>",
 	} {
 		if strings.Contains(text, marker) {
 			return true
@@ -527,6 +537,8 @@ func previewStartsHiddenContext(text string) bool {
 		"<environment_context>",
 		"<INSTRUCTIONS>",
 		"<skill>",
+		"<turn_aborted>",
+		"<oai-mem-citation>",
 	} {
 		if strings.HasPrefix(text, prefix) {
 			return true
@@ -542,6 +554,8 @@ func previewEndsHiddenContext(text string) bool {
 		"</environment_context>",
 		"</INSTRUCTIONS>",
 		"</skill>",
+		"</turn_aborted>",
+		"</oai-mem-citation>",
 	} {
 		if strings.HasPrefix(text, prefix) {
 			return true

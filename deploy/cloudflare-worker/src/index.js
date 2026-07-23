@@ -1635,9 +1635,113 @@ function hexFromBytes(bytes) {
   return out;
 }
 
+function sanitizeTranscriptEntries(entries) {
+  const sanitized = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || typeof entry !== "object") continue;
+    const next = { ...entry };
+    if (next.kind === "message") {
+      const text = redactInternalContext(next.text).trim();
+      next.text = text === "[internal context omitted]" ? "" : text;
+      const images = Array.isArray(next.images) ? next.images : [];
+      if (!next.text && !images.length && !Number(next.omitted_images || 0)) continue;
+    }
+    if (next.kind === "tool") {
+      next.input_preview = redactInternalContext(next.input_preview);
+      next.output = redactInternalContext(next.output);
+      next.output_bytes = byteLengthInBrowser(next.output || "");
+    }
+    sanitized.push(next);
+  }
+  return sanitized;
+}
+
+function redactInternalContext(text) {
+  if (!text) return "";
+  const visible = [];
+  let inHiddenBlock = false;
+  let silentHiddenBlock = false;
+  let redactedPrevious = false;
+  for (const line of String(text).split("\\n")) {
+    const trimmed = line.trim();
+    if (inHiddenBlock) {
+      if (!silentHiddenBlock && !redactedPrevious) {
+        visible.push("[internal context omitted]");
+        redactedPrevious = true;
+      }
+      if (endsInternalContext(trimmed)) {
+        inHiddenBlock = false;
+        silentHiddenBlock = false;
+      }
+      continue;
+    }
+    if (containsInternalContext(trimmed)) {
+      const silent = silentlyRedactsInternalContext(trimmed);
+      if (!silent && !redactedPrevious) {
+        visible.push("[internal context omitted]");
+        redactedPrevious = true;
+      }
+      if (startsInternalContext(trimmed) && !endsInternalContext(trimmed)) {
+        inHiddenBlock = true;
+        silentHiddenBlock = silent;
+      }
+      continue;
+    }
+    visible.push(line);
+    redactedPrevious = false;
+  }
+  return visible.join("\\n").trim();
+}
+
+function silentlyRedactsInternalContext(text) {
+  return String(text || "").trim().startsWith("<oai-mem-citation>");
+}
+
+function containsInternalContext(text) {
+  const value = String(text || "");
+  if (startsInternalContext(value)) return true;
+  return [
+    "# AGENTS.md instructions",
+    "<recommended_plugins>",
+    "<codex_internal_context",
+    "<environment_context>",
+    "<INSTRUCTIONS>",
+    "<skill>",
+    "<turn_aborted>",
+    "<oai-mem-citation>"
+  ].some((marker) => value.includes(marker));
+}
+
+function startsInternalContext(text) {
+  const value = String(text || "").trim();
+  return [
+    "# AGENTS.md instructions",
+    "<recommended_plugins>",
+    "<codex_internal_context",
+    "<environment_context>",
+    "<INSTRUCTIONS>",
+    "<skill>",
+    "<turn_aborted>",
+    "<oai-mem-citation>"
+  ].some((prefix) => value.startsWith(prefix));
+}
+
+function endsInternalContext(text) {
+  const value = String(text || "").trim();
+  return [
+    "</recommended_plugins>",
+    "</codex_internal_context>",
+    "</environment_context>",
+    "</INSTRUCTIONS>",
+    "</skill>",
+    "</turn_aborted>",
+    "</oai-mem-citation>"
+  ].some((suffix) => value.includes(suffix));
+}
+
 function renderTranscript(transcript, options = {}) {
   activeTranscriptSource = String(transcript.source || transcript.source_agent || "");
-  const entries = (transcript.entries || []).filter((entry) => !isInternalContextEntry(entry));
+  const entries = sanitizeTranscriptEntries(transcript.entries || []);
   const messageCount = entries.filter((entry) => entry.kind === "message").length;
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   const imageCount = entries.reduce((count, entry) => count + (entry.images || []).filter((image) => !image.omitted).length, 0);
@@ -1693,16 +1797,6 @@ function lastAssistantMessageIndex(entries) {
     if (entries[i].kind === "message" && entries[i].role === "assistant") return i;
   }
   return -1;
-}
-
-function isInternalContextEntry(entry) {
-  if (!entry || entry.kind !== "message") return false;
-  const text = String(entry.text || "").trim();
-  return text.startsWith("# AGENTS.md instructions for ") ||
-    text.startsWith("<codex_internal_context") ||
-    text.startsWith("<environment_context>") ||
-    text.startsWith("<INSTRUCTIONS>") ||
-    text.startsWith("<skill>");
 }
 
 function messageNode(entry) {
