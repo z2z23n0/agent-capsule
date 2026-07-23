@@ -3059,7 +3059,7 @@ function readLimits(env) {
     maxShareBytes: envInt(env, "MAX_SHARE_BYTES", maxBlobBytes + maxManifestBytes),
     maxTitleChars: envInt(env, "MAX_TITLE_CHARS", 180),
     maxThreadIDChars: envInt(env, "MAX_THREAD_ID_CHARS", 128),
-    maxTtlSeconds: envInt(env, "MAX_TTL_SECONDS", 24 * 60 * 60),
+    maxTtlSeconds: envInt(env, "MAX_TTL_SECONDS", 7 * 24 * 60 * 60),
     maxDownloadsPerShare: envInt(env, "MAX_DOWNLOADS_PER_SHARE", 10),
     liveBytesLimit: envInt(env, "LIVE_BYTES_LIMIT", 4 * GB),
     monthlyGbDaysLimit: envInt(env, "MONTHLY_GB_DAYS_LIMIT", 120),

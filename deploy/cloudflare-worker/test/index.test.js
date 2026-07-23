@@ -5,17 +5,22 @@ import worker, { BudgetGate } from "../src/index.js";
 
 const BASE_URL = "https://capsule.example";
 const DEFAULT_INSTALL_COMMAND = "curl -fsSL https://raw.githubusercontent.com/z2z23n0/agent-capsule/main/install.sh | sh";
+const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 test("anonymous upload/download happy path", async () => {
   const env = fakeEnv();
   const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "application/octet-stream" });
+  const uploadStartedAt = Date.now();
   const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
     method: "POST",
     body: shareForm(blob)
   }), env);
+  const uploadFinishedAt = Date.now();
   assert.equal(upload.status, 201);
   const created = await upload.json();
   assert.match(created.share_url, /^https:\/\/capsule\.example\/s\//);
+  assert.ok(Date.parse(created.expires_at) >= uploadStartedAt + DEFAULT_TTL_SECONDS * 1000);
+  assert.ok(Date.parse(created.expires_at) <= uploadFinishedAt + DEFAULT_TTL_SECONDS * 1000);
   const shareID = new URL(created.share_url).pathname.split("/").pop();
   assert.match(shareID, /^[A-Za-z0-9_-]{16}$/);
   assert.equal(created.manifest_url, BASE_URL + "/v1/shares/" + shareID);
@@ -33,7 +38,9 @@ test("anonymous upload/download happy path", async () => {
 
   const caps = await worker.fetch(new Request(BASE_URL + "/v1/capabilities"), env);
   assert.equal(caps.status, 200);
-  assert.equal((await caps.json()).max_blob_bytes, 32 * 1024 * 1024);
+  const capabilities = await caps.json();
+  assert.equal(capabilities.max_blob_bytes, 32 * 1024 * 1024);
+  assert.equal(capabilities.max_ttl_seconds, DEFAULT_TTL_SECONDS);
 });
 
 test("configured BYO token gates uploads but not public reads", async () => {
