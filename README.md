@@ -29,6 +29,11 @@ restore it into their own agent and keep working.
 Agent Capsule currently supports Codex and Claude Code export/import, including
 cross-agent artifact imports through share links and zip capsules.
 
+It also supports controlled Codex profile migration between Macs: selected
+projects and their native threads, user configuration, skills, memories, and
+automations can be moved while preserving the target Mac's authentication and
+device identity.
+
 Codex image uploads referenced by a session are preserved. Agent Capsule does
 not package arbitrary non-image files yet.
 
@@ -125,6 +130,44 @@ Verify the imported thread/session:
 capsule verify --target codex --home ~/.codex --thread <new-thread-id> --target-cwd .
 capsule verify --target claude --home ~/.claude --thread <new-session-id> --target-cwd .
 ```
+
+## Codex profile migration
+
+Profile migration is separate from session handoff. It preserves selected
+native thread ids and uses controlled overwrite semantics for a newly installed
+target Codex. Project working trees are recreated with Git; uncommitted and
+untracked files are not copied.
+
+```bash
+capsule profile export \
+  --target-home /Users/<target-user>/.codex \
+  --target-workspace /Users/<target-user>/workspace \
+  --project /path/to/project-a \
+  --git-bundle-fallback \
+  --out ~/.codex/profile-migrations/<migration-id>
+capsule profile serve ~/.codex/profile-migrations/<migration-id> --listen :8765
+```
+
+On the target Mac:
+
+```bash
+capsule profile fetch <tokenized-source-url> --out ~/.codex/profile-migrations/<migration-id>
+capsule profile clone ~/.codex/profile-migrations/<migration-id> --execute
+capsule profile import ~/.codex/profile-migrations/<migration-id> --home ~/.codex
+capsule profile schedule-import ~/.codex/profile-migrations/<migration-id> --home ~/.codex --execute
+```
+
+After Codex reopens:
+
+```bash
+capsule profile verify ~/.codex/profile-migrations/<migration-id> --home ~/.codex
+capsule profile unschedule ~/.codex/profile-migrations/<migration-id> --home ~/.codex --execute
+```
+
+The one-shot LaunchAgent uses `KeepAlive=false`, removes its plist after the
+attempt, and writes `import-status.json`. The profile allowlist excludes auth,
+provider tokens, installation/device ids, cookies, Keychain data, managed
+plugins, caches, logs, worktrees, and `skills/.system`.
 
 ## Privacy commitments
 

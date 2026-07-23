@@ -20,6 +20,8 @@ Agent Capsule 会把这段会话打包成一个可以一键导入的胶囊。接
 
 Agent Capsule 目前支持 Codex 和 Claude Code 的导出/导入，也支持通过分享链接和 zip 胶囊进行跨 agent artifact 导入。
 
+它也支持在两台 Mac 之间做受控的 Codex profile 迁移：迁移选定项目及其原生任务、用户配置、skills、memories 和 automations，同时保留目标 Mac 自己的登录态和设备身份。
+
 Codex 会话里引用的图片上传会被保留。Agent Capsule 目前还不会打包任意非图片文件。
 
 同源导入会创建新的原生 thread/session。跨 agent 导入会保留可见对话、工具证据、工作上下文，并把源 agent 的 raw transcript 写入 sidecar 供后续深挖；它不迁移 provider credential、登录态、云端状态、文件系统 checkpoint 或 agent 私有加密状态。
@@ -97,6 +99,41 @@ capsule import handoff-topic.capsule.zip --target claude --target-cwd . --execut
 capsule verify --target codex --home ~/.codex --thread <new-thread-id> --target-cwd .
 capsule verify --target claude --home ~/.claude --thread <new-session-id> --target-cwd .
 ```
+
+## Codex Profile 迁移
+
+Profile 迁移和单任务交接是两套语义。它会保留选中任务原来的 thread id，并对新装目标 Codex 的受控白名单做覆盖。项目工作树由 Git 在目标机器重建，不复制未提交和未跟踪文件。
+
+源 Mac：
+
+```bash
+capsule profile discover
+capsule profile export \
+  --target-home /Users/<target-user>/.codex \
+  --target-workspace /Users/<target-user>/workspace \
+  --project /path/to/project-a \
+  --git-bundle-fallback \
+  --out ~/.codex/profile-migrations/<migration-id>
+capsule profile serve ~/.codex/profile-migrations/<migration-id> --listen :8765
+```
+
+目标 Mac：
+
+```bash
+capsule profile fetch <带令牌的源地址> --out ~/.codex/profile-migrations/<migration-id>
+capsule profile clone ~/.codex/profile-migrations/<migration-id> --execute
+capsule profile import ~/.codex/profile-migrations/<migration-id> --home ~/.codex
+capsule profile schedule-import ~/.codex/profile-migrations/<migration-id> --home ~/.codex --execute
+```
+
+Codex 重新打开后：
+
+```bash
+capsule profile verify ~/.codex/profile-migrations/<migration-id> --home ~/.codex
+capsule profile unschedule ~/.codex/profile-migrations/<migration-id> --home ~/.codex --execute
+```
+
+一次性 LaunchAgent 使用 `KeepAlive=false`，执行后会删除自己的 plist，并写入 `import-status.json`。迁移白名单明确排除认证、provider token、安装/设备 id、Cookie、Keychain、托管插件、缓存、日志、worktree 和 `skills/.system`。
 
 ## 隐私承诺
 

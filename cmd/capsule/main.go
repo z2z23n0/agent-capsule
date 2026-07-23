@@ -37,6 +37,8 @@ func run(args []string) error {
 		return runImport(args[1:])
 	case "verify":
 		return runVerify(args[1:])
+	case "profile":
+		return runProfile(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -216,5 +218,6 @@ Usage:
   capsule import session.capsule.zip --target claude --target-cwd . --execute
   capsule import "https://example.workers.dev/s/share-id#k=..." --target codex --target-cwd . --execute
   capsule verify --target codex --home ~/.codex --thread <thread-id> --target-cwd .
-  capsule verify --target claude --home ~/.claude --thread <session-id> --target-cwd .`)
+  capsule verify --target claude --home ~/.claude --thread <session-id> --target-cwd .
+  capsule profile help`)
 }
