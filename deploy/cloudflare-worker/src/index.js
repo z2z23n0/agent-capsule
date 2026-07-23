@@ -27,6 +27,7 @@ const SHARE_PAGE_COPY = {
     agentsKicker: "FOR AGENTS",
     restoreTitle: "Restore locally",
     restoreCopy: "Choose Codex or Claude Code and import the complete session as a new native thread or session.",
+    githubLabel: "View Agent Capsule on GitHub",
     languageLabel: "Language",
     englishLanguage: "English",
     chineseLanguage: "Chinese (Simplified)",
@@ -130,6 +131,7 @@ const SHARE_PAGE_COPY = {
     agentsKicker: "给 AGENT",
     restoreTitle: "恢复到本地",
     restoreCopy: "选择 Codex 或 Claude Code，将完整会话导入为新的本地 thread 或 session。",
+    githubLabel: "在 GitHub 查看 Agent Capsule",
     languageLabel: "语言",
     englishLanguage: "English",
     chineseLanguage: "简体中文",
@@ -768,13 +770,26 @@ function sharePageHTML(request, manifest, id, locale = "en") {
       <header class="preview-header">
         <div class="preview-toolbar">
           <p class="preview-kicker">${escapeHTML(copy.previewKicker)}</p>
-          <label class="select-control language-control" for="language-select">
-            <span>${escapeHTML(copy.languageLabel)}</span>
-            <select id="language-select">
-              <option value="en"${locale === "en" ? " selected" : ""}>${escapeHTML(copy.englishLanguage)}</option>
-              <option value="zh-CN"${locale === "zh-CN" ? " selected" : ""}>${escapeHTML(copy.chineseLanguage)}</option>
-            </select>
-          </label>
+          <div class="preview-toolbar-actions">
+            <a
+              class="github-link"
+              href="${escapeHTML(DEFAULT_DOCS_URL)}"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="${escapeHTML(copy.githubLabel)}"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.65 7.65 0 0 1 8 3.43c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path>
+              </svg>
+            </a>
+            <label class="select-control language-control" for="language-select">
+              <span>${escapeHTML(copy.languageLabel)}</span>
+              <select id="language-select">
+                <option value="en"${locale === "en" ? " selected" : ""}>${escapeHTML(copy.englishLanguage)}</option>
+                <option value="zh-CN"${locale === "zh-CN" ? " selected" : ""}>${escapeHTML(copy.chineseLanguage)}</option>
+              </select>
+            </label>
+          </div>
         </div>
         <h1 id="page-title">${escapeHTML(title)}</h1>
         <p class="preview-subtitle">${escapeHTML(copy.previewSubtitle)}</p>
@@ -888,6 +903,38 @@ button, a { font: inherit; }
   font-size: 15px;
   font-weight: 700;
   letter-spacing: .01em;
+}
+.preview-toolbar-actions {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+.github-link {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+}
+.github-link:hover {
+  border-color: #b8c0c7;
+  background: #f8fafb;
+}
+.github-link:active {
+  transform: translateY(1px);
+}
+.github-link:focus-visible {
+  outline: 2px solid rgba(47, 111, 102, .32);
+  outline-offset: 2px;
+}
+.github-link svg {
+  display: block;
+  width: 19px;
+  height: 19px;
 }
 .select-control {
   display: grid;
@@ -1424,6 +1471,10 @@ button, a { font: inherit; }
     align-items: start;
     flex-direction: column;
     margin-bottom: 14px;
+  }
+  .preview-toolbar-actions {
+    width: 100%;
+    justify-content: space-between;
   }
   .language-control { min-width: min(100%, 220px); }
   .preview-subtitle,

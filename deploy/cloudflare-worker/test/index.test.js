@@ -237,6 +237,11 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.match(html, /FOR AGENTS/);
   assert.match(html, /Restore locally/);
   assert.match(html, /id="language-select"/);
+  assert.match(
+    html,
+    /<a[\s\S]*class="github-link"[\s\S]*href="https:\/\/github\.com\/z2z23n0\/agent-capsule"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*aria-label="View Agent Capsule on GitHub"/
+  );
+  assert.match(html, /class="github-link"[\s\S]*<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">/);
   assert.match(html, /id="target-select"/);
   assert.match(html, /<option value="codex" selected>Codex<\/option>/);
   assert.match(html, /<option value="claude">Claude Code<\/option>/);
@@ -403,6 +408,7 @@ test("share page renders a complete Chinese shell only when explicitly requested
   assert.match(chineseHTML, /加载完整对话/);
   assert.match(chineseHTML, /完整对话加载失败/);
   assert.match(chineseHTML, /选择 Codex 或 Claude Code/);
+  assert.match(chineseHTML, /aria-label="在 GitHub 查看 Agent Capsule"/);
   assert.deepEqual(
     Object.keys(sharePageI18n(chineseHTML).copy).sort(),
     Object.keys(sharePageI18n(await (await worker.fetch(new Request(created.share_url), env)).text()).copy).sort()
