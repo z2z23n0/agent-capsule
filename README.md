@@ -15,6 +15,19 @@ The CLI command is `capsule`.
 
 [中文 README](README.zh-CN.md)
 
+## Demo
+
+The full flow is export → browser preview → import → continue in a native task.
+Click any image to view it full size.
+
+| Export an encrypted share link | Preview and inspect it in the browser |
+| --- | --- |
+| [![Agent Capsule exports a Codex task as an encrypted share link](https://github.com/user-attachments/assets/83934a21-05d9-4055-956f-4ada0cc77c17)](https://github.com/user-attachments/assets/83934a21-05d9-4055-956f-4ada0cc77c17) | [![Agent Capsule decrypts and previews the shared task in the browser](https://github.com/user-attachments/assets/f52377d6-e26f-4931-95cd-e2a3cb15bafa)](https://github.com/user-attachments/assets/f52377d6-e26f-4931-95cd-e2a3cb15bafa) |
+
+| Import it as a new Codex task | Continue with the restored context |
+| --- | --- |
+| [![Agent Capsule imports the shared session as a new native Codex task](https://github.com/user-attachments/assets/db164bee-c8b1-455b-a7f7-e8c5bd1ac967)](https://github.com/user-attachments/assets/db164bee-c8b1-455b-a7f7-e8c5bd1ac967) | [![The imported Codex task continues with the restored conversation and context](https://github.com/user-attachments/assets/f85fe03f-f57f-434c-938c-e57fcd8dc70a)](https://github.com/user-attachments/assets/f85fe03f-f57f-434c-938c-e57fcd8dc70a) |
+
 ## Why
 
 Sometimes you want to hand off the whole agent workspace: the conversation, the
