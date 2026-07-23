@@ -10,6 +10,14 @@ CLI 命令叫 `capsule`。
 
 [English README](README.md)
 
+## 演示
+
+分享链接会在浏览器本地解密预览，也可以导入原生 Codex 任务继续。点击图片查看原图。
+
+| 浏览器本地解密预览 | 导入后在原生 Codex 中继续 |
+| --- | --- |
+| [![Agent Capsule 在浏览器本地解密并预览分享的任务](https://github.com/user-attachments/assets/345a8b12-5c92-4c89-bb92-1099c6954f5b)](https://github.com/user-attachments/assets/345a8b12-5c92-4c89-bb92-1099c6954f5b) | [![通过 Agent Capsule 导入的任务在原生 Codex 中继续](https://github.com/user-attachments/assets/7876feeb-7562-4f77-980d-fa65905ee420)](https://github.com/user-attachments/assets/7876feeb-7562-4f77-980d-fa65905ee420) |
+
 ## 解决什么问题
 
 你想把整个 agent 工作现场交给别人：包括对话、排查过程、工具使用、工作上下文，以及还没完成的下一步。
