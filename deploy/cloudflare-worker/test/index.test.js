@@ -257,7 +257,9 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.match(html, /function toolActionNode/);
   assert.match(html, /function renderMarkdown/);
   assert.match(html, /function imageGallery/);
-  assert.match(html, /function isInternalContextEntry/);
+  assert.match(html, /function sanitizeTranscriptEntries/);
+  assert.match(html, /function redactInternalContext/);
+  assert.match(html, /const entries = sanitizeTranscriptEntries\(transcript\.entries \|\| \[\]\)/);
   assert.match(html, /skill-chip/);
   assert.match(html, /function skillDetailsNode/);
   assert.match(html, /function stripSkillInvocation/);
@@ -287,6 +289,95 @@ test("share page serves human preview shell and agent metadata", async () => {
   assert.equal(manifestJSON.import.execute_command, "capsule import \"<this-url>\" --target codex --target-cwd . --execute");
   assert.equal(manifestJSON.import.target_commands.claude, "capsule import \"<this-url>\" --target claude --target-cwd . --execute");
   assert.equal(manifestJSON.import.skill_url, "https://github.com/z2z23n0/agent-capsule/tree/main/skills/agent-capsule");
+});
+
+test("share page redacts internal context from full transcript entries", async () => {
+  const env = fakeEnv();
+  const upload = await worker.fetch(new Request(BASE_URL + "/v1/shares", {
+    method: "POST",
+    body: shareForm(new Blob(["hello"]))
+  }), env);
+  assert.equal(upload.status, 201);
+  const created = await upload.json();
+  const html = await (await worker.fetch(new Request(created.share_url), env)).text();
+  const entries = [
+    {
+      kind: "message",
+      role: "user",
+      text: [
+        "<recommended_plugins>",
+        "private plugin inventory",
+        "</recommended_plugins>",
+        "# AGENTS.md instructions",
+        "<INSTRUCTIONS>",
+        "private project rules",
+        "</INSTRUCTIONS>",
+        "<environment_context>",
+        "/Users/private/workspace",
+        "</environment_context>"
+      ].join("\n")
+    },
+    {
+      kind: "message",
+      role: "assistant",
+      text: [
+        "visible final answer",
+        "",
+        "<oai-mem-citation>",
+        "<citation_entries>",
+        "MEMORY.md:10-12|note=[private provenance]",
+        "</citation_entries>",
+        "<rollout_ids>",
+        "019f523a-60d4-70d2-893e-c93ac9f92f43",
+        "</rollout_ids>",
+        "</oai-mem-citation>"
+      ].join("\n")
+    },
+    {
+      kind: "tool",
+      tool: "exec",
+      input_preview: "visible input before\n<environment_context>\nprivate input\n</environment_context>\nvisible input after",
+      output: "visible output before\n# AGENTS.md instructions\n<INSTRUCTIONS>\nprivate output\n</INSTRUCTIONS>\nvisible output after"
+    }
+  ];
+
+  const sanitized = runSharePageFunction(
+    html,
+    [
+      "sanitizeTranscriptEntries",
+      "redactInternalContext",
+      "containsInternalContext",
+      "startsInternalContext",
+      "endsInternalContext",
+      "silentlyRedactsInternalContext",
+      "byteLengthInBrowser"
+    ],
+    "sanitizeTranscriptEntries(entries)",
+    { entries }
+  );
+  const visible = JSON.stringify(sanitized);
+  for (const leaked of [
+    "recommended_plugins",
+    "private plugin inventory",
+    "AGENTS.md",
+    "private project rules",
+    "environment_context",
+    "/Users/private/workspace",
+    "oai-mem-citation",
+    "citation_entries",
+    "MEMORY.md",
+    "private provenance",
+    "rollout_ids",
+    "019f523a",
+    "private input",
+    "private output"
+  ]) {
+    assert.doesNotMatch(visible, new RegExp(leaked.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.equal(sanitized.length, 2);
+  assert.equal(sanitized[0].text, "visible final answer");
+  assert.match(sanitized[1].input_preview, /visible input before[\s\S]*\[internal context omitted\][\s\S]*visible input after/);
+  assert.match(sanitized[1].output, /visible output before[\s\S]*\[internal context omitted\][\s\S]*visible output after/);
 });
 
 test("share page renders a complete Chinese shell only when explicitly requested", async () => {
